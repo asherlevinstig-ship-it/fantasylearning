@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "colyseus.js": "^0.16.22",
+    "noa-engine": "^0.33.0",
+    "three": "^0.182.0",
+    "three-mesh-bvh": "^0.9.7"
+  }
+}
