@@ -40,7 +40,7 @@ function createOverlayCanvas(opts: {
     top: "0px",
     pointerEvents: "none", // Let clicks pass through to the game
     imageRendering: "pixelated",
-    zIndex: "100", // <--- CRITICAL: Forces this canvas ABOVE the game world
+    zIndex: "100", // Forces this canvas ABOVE the game world
     ...opts.style,
   });
   
@@ -147,8 +147,9 @@ async function main() {
   playerViewer.autoRotate = true; 
   playerViewer.autoRotateSpeed = 0.5;
 
-  // Load Skin (Classic Steve)
-  await playerViewer.loadSkin("https://textures.minecraft.net/texture/1f8b0f8d1a0cfe6f2c2c6b0a9d0d1e7d83c20f62ab2e6b4c0f5c5e6b3a4c2a1");
+  // Load Valid Skin (Crafatar URL)
+  const SKIN_URL = "https://crafatar.com/skins/c06f89064c8a49119c29ea1dbd1aab82"; // Steve
+  await playerViewer.loadSkin(SKIN_URL);
   
   const walkAnim = new WalkingAnimation(playerViewer);
   walkAnim.speed = 1.0;
@@ -180,29 +181,46 @@ async function main() {
   handsViewer.fov = 70;
   handsViewer.zoom = 1.15;
   
-  await handsViewer.loadSkin(playerViewer.skin);
+  await handsViewer.loadSkin(SKIN_URL);
 
-  // Hide Body Parts (Show only Arms)
-  const hv: any = handsViewer as any;
-  const po: any = hv.playerObject;
-
-  if (po) {
-    if (po.head) po.head.visible = false;
-    if (po.body) po.body.visible = false;
-    if (po.leftLeg) po.leftLeg.visible = false;
-    if (po.rightLeg) po.rightLeg.visible = false;
+  // FIX: Access body parts via playerObject.skin property
+  const po = handsViewer.playerObject;
+  
+  if (po && po.skin) {
+    // Hide body parts we don't want
+    po.skin.head.visible = false;
+    po.skin.body.visible = false;
+    po.skin.leftLeg.visible = false;
+    po.skin.rightLeg.visible = false;
 
     // Ensure arms are visible
-    if (po.leftArm) po.leftArm.visible = true;
-    if (po.rightArm) po.rightArm.visible = true;
+    po.skin.leftArm.visible = true;
+    po.skin.rightArm.visible = true;
+
+    // Position arms slightly forward/inward for FPS view
+    // Note: The library uses Three.js objects
+    // This adjusts the 'rest' position of the arms relative to the body center
+    // Values are approximate to make them look like "hands holding items"
+    po.skin.leftArm.rotation.x = -0.5;
+    po.skin.rightArm.rotation.x = -0.5;
+    
+    // Slight spread
+    po.skin.leftArm.rotation.z = 0.1;
+    po.skin.rightArm.rotation.z = -0.1;
   }
 
-  // Position camera to look at hands
-  handsViewer.camera.position.set(0, 1.4, 1.5);
-  handsViewer.camera.lookAt(0, 1.3, 0);
+  // Adjust camera to look down at where the hands are
+  // Camera is relative to the player center
+  handsViewer.camera.position.set(0, 0, 30); // Move camera back
+  handsViewer.camera.lookAt(0, 0, 0);       // Look at center
+  
+  // NOTE: skinview3d camera controls might override lookAt if orbit controls are active,
+  // but for a static view, we often just zoom/position the camera manually.
+  // Let's force a specific view:
+  handsViewer.camera.position.set(0, 10, 40);
+  handsViewer.camera.lookAt(0, -10, 0);
 
   // CRITICAL: Continuous Render Loop for Hands
-  // (Without this, hands might render once and vanish or never appear)
   const renderLoop = () => {
     handsViewer.render();
     requestAnimationFrame(renderLoop);
@@ -214,11 +232,13 @@ async function main() {
   // ========================================================================
   
   const swingHand = () => {
-    const p: any = (handsViewer as any).playerObject;
-    if (!p?.rightArm) return;
+    // FIX: Access via .skin
+    const skin = handsViewer.playerObject?.skin;
+    if (!skin?.rightArm) return;
 
     const start = now();
     const duration = 150; // ms
+    const baseRot = -0.5; // The resting rotation we set earlier
 
     const animate = () => {
       const t = now() - start;
@@ -226,10 +246,10 @@ async function main() {
       
       // Swing logic
       const swing = Math.sin(k * Math.PI) * 1.5;
-      p.rightArm.rotation.x = -swing;
+      skin.rightArm.rotation.x = baseRot - swing;
 
       if (k < 1) requestAnimationFrame(animate);
-      else p.rightArm.rotation.x = 0; // Reset
+      else skin.rightArm.rotation.x = baseRot; // Reset
     };
     requestAnimationFrame(animate);
   };
