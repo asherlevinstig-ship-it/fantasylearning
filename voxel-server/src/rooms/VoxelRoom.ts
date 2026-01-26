@@ -6,7 +6,11 @@ import { ChunkState } from "./state/ChunkState";
 import { keyFromChunk } from "../voxel/chunkKey";
 import { ChunkStore } from "../voxel/chunkStore";
 import { clamp, isFiniteNumber } from "../voxel/validate";
+import { TownGenerator } from "../voxel/TownGenerator";
 
+// ----------------------------------------------------------------------
+// MESSAGE TYPES
+// ----------------------------------------------------------------------
 type MoveMsg = { x: number; y: number; z: number; yaw?: number; pitch?: number };
 type SubscribeMsg = { cx: number; cy: number; cz: number; r: number }; // center + radius (in chunks)
 type SetBlockMsg = { x: number; y: number; z: number; id: number }; // world coords + block id
@@ -25,6 +29,27 @@ export class VoxelRoom extends Room<VoxelState> {
     // Tune patch rate; voxel games often benefit from a bit lower for bandwidth stability
     this.setPatchRate(20); // 20 patches/s
 
+    // ==================================================================
+    // 1. TOWN GENERATION (Server-Side)
+    // ==================================================================
+    console.log("🏙️ Starting Town Generation...");
+    
+    // Initialize the generator (200x200 area, seed 12345)
+    const townGen = new TownGenerator(200, 200, 12345);
+
+    // Generate the town and store it directly into the server's ChunkStore
+    townGen.generate((x, y, z, id) => {
+        // This populates the server's memory with roads, plots, and terrain
+        this.chunks.setBlock(x, y, z, id);
+    });
+
+    console.log("✅ Town Generation Complete & Loaded into Memory.");
+    // ==================================================================
+
+
+    // ==================================================================
+    // 2. MESSAGE HANDLERS
+    // ==================================================================
     this.onMessage("move", (client, msg: MoveMsg) => this.handleMove(client, msg));
     this.onMessage("subscribeChunks", (client, msg: SubscribeMsg) => this.handleSubscribe(client, msg));
     this.onMessage("setBlock", (client, msg: SetBlockMsg) => this.handleSetBlock(client, msg));
@@ -43,6 +68,9 @@ export class VoxelRoom extends Room<VoxelState> {
     this.subscriptions.delete(client.sessionId);
   }
 
+  // ==================================================================
+  // LOGIC: MOVEMENT
+  // ==================================================================
   private handleMove(client: Client, msg: MoveMsg) {
     const p = this.state.players.get(client.sessionId);
     if (!p) return;
@@ -58,6 +86,9 @@ export class VoxelRoom extends Room<VoxelState> {
     if (isFiniteNumber(msg.pitch)) p.pitch = clamp(msg.pitch!, -89, 89);
   }
 
+  // ==================================================================
+  // LOGIC: CHUNK SUBSCRIPTION (Spatial Hashing)
+  // ==================================================================
   private handleSubscribe(client: Client, msg: SubscribeMsg) {
     const set = this.subscriptions.get(client.sessionId);
     if (!set) return;
@@ -103,6 +134,9 @@ export class VoxelRoom extends Room<VoxelState> {
     this.subscriptions.set(client.sessionId, wanted);
   }
 
+  // ==================================================================
+  // LOGIC: BLOCK EDITING
+  // ==================================================================
   private handleSetBlock(client: Client, msg: SetBlockMsg) {
     // validate message
     if (![msg.x, msg.y, msg.z, msg.id].every(isFiniteNumber)) return;
