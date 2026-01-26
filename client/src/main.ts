@@ -4,63 +4,42 @@ import { Engine } from "noa-engine";
 const hud = document.getElementById("hud")!;
 const setHud = (t: string) => (hud.textContent = t);
 
+function placeBlock(noa: any, id: number, x: number, y: number, z: number) {
+  const w = noa.world;
+  if (w?.setBlockID) return w.setBlockID(id, x, y, z);
+  if (w?.setBlock) return w.setBlock(id, x, y, z);
+  throw new Error("No supported block placement method found on noa.world");
+}
+
 async function start() {
   setHud("Starting noa...");
+  const noa: any = new Engine({ debug: true, chunkSize: 16 });
 
-  const noa = new Engine({
-    debug: true,
-    // make sure it actually renders full screen
-    canvas: undefined, // noa will create one
-    chunkSize: 16,
-    chunkAddDistance: 2,
-    chunkRemoveDistance: 3,
-  });
+  console.log("noa keys:", Object.keys(noa));
+  console.log("world keys:", noa.world ? Object.keys(noa.world) : "no world");
 
-  // --- DEFINE SOME BLOCKS ---
-  // 1 = grass, 2 = dirt (ids are arbitrary)
-  const grass = noa.registry.registerBlock({
-    id: 1,
-    material: "grass",
-    color: [0.2, 0.8, 0.2],
-    solid: true,
-  });
-
-  const dirt = noa.registry.registerBlock({
-    id: 2,
-    material: "dirt",
-    color: [0.5, 0.3, 0.1],
-    solid: true,
-  });
-
-  // --- PLACE A SIMPLE GROUND PLANE ---
-  // Put a 32x32 platform at y=0, dirt below, grass on top
+  // Basic ground
   for (let x = -16; x <= 16; x++) {
     for (let z = -16; z <= 16; z++) {
-      noa.world.setBlock(dirt, [x, -1, z]);
-      noa.world.setBlock(grass, [x, 0, z]);
+      placeBlock(noa, 2, x, -1, z); // dirt
+      placeBlock(noa, 1, x, 0, z);  // grass
     }
   }
 
-  // --- POSITION PLAYER ABOVE GROUND ---
-  // (If you spawn inside blocks, you’ll see nothing / weirdness)
-  noa.playerEntity && noa.ents.setPosition(noa.playerEntity, [0, 5, 0]);
+  // Move player above ground (method varies, so guard it)
+  if (noa.playerEntity && noa.ents?.setPosition) {
+    noa.ents.setPosition(noa.playerEntity, [0, 5, 0]);
+  }
 
-  // Optional: add a little text so we know render loop is alive
   setHud("Connecting to server...");
-
-  // --- CONNECT TO COLYSEUS ---
-  const serverUrl = window.location.origin;
-  const client = new Client(serverUrl);
+  const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
 
-  console.log("✅ Joined room:", room.id, room.sessionId);
+  console.log("✅ Joined:", room.roomId, room.sessionId);
   setHud(`Connected: ${room.sessionId}`);
 
-  room.onMessage("worldInfo", (info) => {
-    console.log("📩 worldInfo", info);
-  });
+  room.onMessage("worldInfo", (info) => console.log("📩 worldInfo", info));
 
-  // Debug handles
   (window as any).noa = noa;
   (window as any).room = room;
 }
