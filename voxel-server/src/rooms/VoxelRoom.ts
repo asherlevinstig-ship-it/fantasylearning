@@ -35,8 +35,8 @@ export class VoxelRoom extends Room<VoxelState> {
     // 1. INITIALIZE GENERATOR (Lazy Mode)
     // ==================================================================
     console.log("🏙️ Initializing Town Generator...");
-    this.townGen = new TownGenerator(1000, 1000, 12345);
-    console.log("✅ Town Generator Ready (Chunks will be generated on-demand).");
+    this.townGen = new TownGenerator(4000, 4000, 12345); // Matching Client Size
+    console.log("✅ Town Generator Ready.");
     
     // ==================================================================
     // 2. MESSAGE HANDLERS
@@ -50,7 +50,7 @@ export class VoxelRoom extends Room<VoxelState> {
     this.state.players.set(client.sessionId, new PlayerState());
     this.subscriptions.set(client.sessionId, new Set());
 
-    // Send world settings (ChunkSize 16 matches server/generator logic)
+    // Send world settings 
     client.send("worldInfo", { seed: 12345, chunkSize: 16, height: 256 });
   }
 
@@ -72,11 +72,7 @@ export class VoxelRoom extends Room<VoxelState> {
                   const wy = cy * chunkSize + ly;
                   const wz = cz * chunkSize + lz;
 
-                  // 1. Calculate Block ID
                   const id = this.townGen.getBlockID(wx, wy, wz);
-                  
-                  // 2. Write EVERY block (even Air/0) to the store
-                  // This ensures the encoded buffer is complete and not sparse.
                   this.chunks.setBlock(wx, wy, wz, id);
               }
           }
@@ -101,59 +97,46 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // LOGIC: CHUNK SUBSCRIPTION (Vertical Banding Optimization)
+  // LOGIC: CHUNK SUBSCRIPTION (PHYSICS ONLY)
   // ==================================================================
   private handleSubscribe(client: Client, msg: SubscribeMsg) {
     const set = this.subscriptions.get(client.sessionId);
     if (!set) return;
 
-    // Radius in chunks (horizontal)
     const r = Math.max(0, Math.min(8, Math.floor(msg.r))); 
     const cx = Math.floor(msg.cx);
     const cz = Math.floor(msg.cz);
     
-    // OPTIMIZATION: Ignore Client Y (msg.cy). 
-    // Force load the "Gameplay Band" (-1 to 4).
-    // This ensures ground is always loaded and we don't waste CPU on sky/void.
-    const Y_MIN = -1; // -16 to -1 (Underground)
-    const Y_MAX = 4;  // 64 to 79  (Sky/Mountains)
+    // Force load the "Gameplay Band" (-1 to 4)
+    const Y_MIN = -1; 
+    const Y_MAX = 4;  
 
     const wanted = new Set<string>();
 
     for (let x = cx - r; x <= cx + r; x++) {
       for (let z = cz - r; z <= cz + r; z++) {
-        // Vertical Loop: Fixed Band
         for (let y = Y_MIN; y <= Y_MAX; y++) {
           
           const key = keyFromChunk(x, y, z);
           wanted.add(key);
 
-          // A. Ensure chunk exists in Server Memory
+          // A. Ensure chunk exists in Server Memory (For Physics)
           if (!this.chunks.has(key)) {
             this.chunks.create(key); 
-            this.generateChunk(x, y, z); // Force Generate Full Buffer
+            this.generateChunk(x, y, z); 
           }
 
           // B. Sync Metadata via Schema
+          // We still sync metadata so we know who is where, 
+          // but we DO NOT send the raw block data ("chunkData").
           if (!this.state.chunks.has(key)) {
             const cs = new ChunkState();
             cs.key = key;
             cs.version = this.chunks.getVersion(key);
             this.state.chunks.set(key, cs);
           }
-
-          // C. Send Binary Data to Client (if not already subscribed)
-          if (!set.has(key)) {
-            const payload = this.chunks.encodeChunk(key);
-            client.send("chunkData", payload);
-          }
         }
       }
-    }
-
-    // Unsubscribe chunks no longer wanted
-    for (const key of set) {
-      if (!wanted.has(key)) client.send("chunkUnload", { key });
     }
 
     this.subscriptions.set(client.sessionId, wanted);
@@ -170,11 +153,13 @@ export class VoxelRoom extends Room<VoxelState> {
 
     const changedKeys = this.chunks.getTouchedChunkKeys(msg.x, msg.y, msg.z);
 
+    // Update version
     for (const key of changedKeys) {
       const cs = this.state.chunks.get(key);
       if (cs) cs.version = this.chunks.getVersion(key);
     }
 
+    // Broadcast change to relevant players
     for (const [sessionId, sub] of this.subscriptions.entries()) {
       if (changedKeys.some(k => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
