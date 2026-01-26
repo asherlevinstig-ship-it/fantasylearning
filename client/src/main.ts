@@ -1,7 +1,6 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
-// IMPORT THE SHARED GENERATOR
 import { TownGenerator } from "./TownGenerator"; 
 
 // --------------------------------------------------------------------------
@@ -9,18 +8,6 @@ import { TownGenerator } from "./TownGenerator";
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { if (hudEl) hudEl.textContent = t; };
-
-// --------------------------------------------------------------------------
-// HELPER: TEXTURE GENERATION
-// --------------------------------------------------------------------------
-function makeTexture(colorHex: string) {
-  const c = document.createElement("canvas");
-  c.width = 16; c.height = 16;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = colorHex;
-  ctx.fillRect(0, 0, 16, 16);
-  return c.toDataURL();
-}
 
 // --------------------------------------------------------------------------
 // HELPER: OVERLAY CANVAS
@@ -81,16 +68,13 @@ async function main() {
   // ========================================================================
   // 1. CLIENT-SIDE TOWN GENERATION (SHARED SEED)
   // ========================================================================
-  // We generate the exact same map as the server so visuals match physics.
-  
   // A fast lookup map for our static world data
   // Key: "x,y,z" -> Value: BlockID
   const clientWorldMap = new Map<string, number>();
 
-  const townGen = new TownGenerator(200, 200, 12345); // SAME SEED AS SERVER!
+  const townGen = new TownGenerator(200, 200, 12345); // SAME SEED AS SERVER
   
   townGen.generate((x, y, z, id) => {
-      // Store in our local map
       clientWorldMap.set(`${x},${y},${z}`, id);
   });
   
@@ -105,8 +89,8 @@ async function main() {
     chunkSize: 16,
     chunkAddDistance: 2,
     chunkRemoveDistance: 3,
-    playerStart: [0, 15, 0], // Start higher so we don't spawn in a building
-    texturePath: ""
+    playerStart: [0, 15, 0], 
+    texturePath: "" // Not used with color materials
   });
   (window as any).noa = noa;
 
@@ -132,26 +116,47 @@ async function main() {
   });
 
   // ========================================================================
-  // 4. REGISTER BLOCKS & CHUNK LOADING
+  // 4. REGISTER MATERIALS & BLOCKS (FIXED FOR NOA v0.33)
   // ========================================================================
-  // Define Textures
-  const texGrass = makeTexture("#33cc33");
-  const texDirt = makeTexture("#8b5a2b");
-  const texStone = makeTexture("#666666"); // Stone Bricks
-  const texGravel = makeTexture("#999999"); // Roads
+  
+  // -- A. Register Materials First --
+  // Colors are [R, G, B] from 0.0 to 1.0
+  noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
+  noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
+  noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
+  noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
 
+  // -- B. Register Blocks referencing Material Names --
   const AIR = 0;
   
-  // Register Blocks (Must match Server IDs from TownGenerator.ts)
-  const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true, texture: texGrass });
-  const DIRT = noa.registry.registerBlock(2, { material: "dirt", solid: true, opaque: true, texture: texDirt });
-  const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true, texture: texStone });
-  const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true, texture: texGravel });
+  const GRASS = noa.registry.registerBlock(1, { 
+    material: "grass", 
+    solid: true, 
+    opaque: true 
+  });
+  
+  const DIRT = noa.registry.registerBlock(2, { 
+    material: "dirt", 
+    solid: true, 
+    opaque: true 
+  });
+  
+  const STONE_BRICK = noa.registry.registerBlock(3, { 
+    material: "stone", 
+    solid: true, 
+    opaque: true 
+  });
+  
+  const GRAVEL = noa.registry.registerBlock(4, { 
+    material: "gravel", 
+    solid: true, 
+    opaque: true 
+  });
 
   const chunkSize: number = noa.world?._chunkSize ?? 16;
   
   // ------------------------------------------------------------------------
-  // THE CRITICAL UPDATE: READ FROM GENERATED MAP
+  // CHUNK LOADING (FROM GENERATED MAP)
   // ------------------------------------------------------------------------
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       const chunkX = cx * chunkSize;
@@ -165,19 +170,14 @@ async function main() {
         return;
       }
 
-      // Fill chunk from our pre-generated map
       for (let x = 0; x < chunkSize; x++) {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
-            
-            // Calculate Global Position
             const gx = chunkX + x;
             const gy = chunkY + y;
             const gz = chunkZ + z;
 
-            // Check our generated map
             const id = clientWorldMap.get(`${gx},${gy},${gz}`) || AIR;
-            
             dataArr.set(x, y, z, id);
           }
         }
@@ -264,11 +264,8 @@ async function main() {
   console.log("✅ Joined:", room.roomId, room.sessionId);
   setHud(`Connected: ${room.sessionId}`);
 
-  // Handle Server Updates (e.g., someone else placed a block)
   room.onMessage("blockUpdate", (msg) => {
-    // Update noa
     noa.setBlock(msg.id, msg.x, msg.y, msg.z);
-    // Update local cache so if we unload/reload chunk it stays
     clientWorldMap.set(`${msg.x},${msg.y},${msg.z}`, msg.id);
   });
 
@@ -288,7 +285,7 @@ async function main() {
     swingHand();
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
-      room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS }); // Or whatever block
+      room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
       
       // Optimistic Update
       noa.setBlock(GRASS, pos[0], pos[1], pos[2]);
