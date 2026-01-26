@@ -60,28 +60,27 @@ async function main() {
   setHud("Initializing Town Generator...");
 
   // ========================================================================
-  // 1. CONFIGURATION
+  // 1. CONFIGURATION - SCALED UP!
   // ========================================================================
-  const WORLD_RADIUS = 500; // 1000x1000 World
-  const BORDER_BUFFER = 32;
+  const WORLD_RADIUS = 2000;  // 4000x4000 World (massive wilderness)
+  const BORDER_BUFFER = 64;
 
   // ========================================================================
   // 2. INITIALIZE GENERATOR (LAZY MODE)
   // ========================================================================
-  // We do NOT generate the whole world at once.
-  // We just initialize the blueprint so we can query it later per-chunk.
-  const townGen = new TownGenerator(1000, 1000, 12345);
+  // Initialize the massive 4000x4000 world layout
+  const townGen = new TownGenerator(4000, 4000, 12345);
 
   setHud("Starting Engine...");
 
   // ========================================================================
-  // 3. SETUP NOA ENGINE (OPTIMIZED)
+  // 3. SETUP NOA ENGINE - MUCH LARGER VIEW DISTANCE
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
     chunkSize: 32,           // Optimized: 32 blocks per chunk (fewer draw calls)
-    chunkAddDistance: 6,     // View Distance: ~192 blocks radius
-    chunkRemoveDistance: 8,  // Unload Distance: ~256 blocks radius
+    chunkAddDistance: 16,    // 16 * 32 = 512 blocks view radius! (Fixes void edges)
+    chunkRemoveDistance: 20, // Keep chunks loaded longer to prevent flickering
     playerStart: [0, 15, 0], // Start safely above ground
     texturePath: ""          // Not used with color materials
   });
@@ -90,6 +89,7 @@ async function main() {
   // ------------------------------------------------------------------------
   // ACTION BINDING: 'F' acts as 'Fire' (Left Click)
   // ------------------------------------------------------------------------
+  // Binds the physical 'F' key to the 'fire' action
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f'); // Fallback
 
@@ -131,9 +131,8 @@ async function main() {
   const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
 
   // ========================================================================
-  // 6. CLIENT-SIDE CHUNK RENDERING (VISUALS)
+  // 6. CLIENT-SIDE CHUNK RENDERING
   // ========================================================================
-  // This handles the VISUAL generation of chunks using the shared generator.
   const chunkSize = noa.world._chunkSize;
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
@@ -141,7 +140,7 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Optimization: Don't render far outside the world
+      // Skip chunks way outside the world
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
@@ -271,26 +270,21 @@ async function main() {
   });
 
   // ========================================================================
-  // 10. CHUNK SUBSCRIPTION LOOP (The missing link!)
+  // 10. CHUNK SUBSCRIPTION LOOP
   // ========================================================================
-  // This tells the server where we are so it can load physics/sync data.
-  // Note: We use 16 here because the server ChunkStore expects 16-sized chunks,
-  // even if our client visual render chunks are 32.
+  // The server uses 16-sized chunks for logic, even if we render 32-sized.
   const SERVER_CHUNK_SIZE = 16; 
-  const SUBSCRIPTION_RADIUS = 6; 
+  const SUBSCRIPTION_RADIUS = 8; // Sufficient for server physics
 
   setInterval(() => {
-    // Get player position
     const p = noa.entities.getPosition(noa.playerEntity);
     
-    // Convert to Server Chunk Coordinates
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
 
-    // Tell server to subscribe us to these chunks
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
-  }, 250); // Send every 250ms
+  }, 250);
 
   // ========================================================================
   // 11. RESIZE HANDLING
