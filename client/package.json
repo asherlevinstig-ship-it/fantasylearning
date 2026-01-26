@@ -17,6 +17,8 @@
     "@babylonjs/core": "^6.49.0",
     "colyseus.js": "^0.16.22",
     "noa-engine": "^0.33.0",
+    "rot-js": "^2.2.1",
+    "simplex-noise": "^4.0.3",
     "skinview3d": "^3.4.1",
     "three": "^0.182.0"
   }
