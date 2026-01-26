@@ -24,7 +24,7 @@ export class TownGenerator {
     }
 
     generate(setBlockCallback: (x: number, y: number, z: number, id: number) => void) {
-        console.log(`🏰 constructing 'The Town of Beginning' (${this.width}x${this.depth})...`);
+        console.log(`🏰 Constructing 'The Town of Beginning' (${this.width}x${this.depth})...`);
 
         // ==================================================================
         // CONFIGURATION (SCALED UP)
@@ -94,6 +94,8 @@ export class TownGenerator {
         const halfW = Math.floor(this.width / 2);
         const halfD = Math.floor(this.depth / 2);
 
+        let blockCount = 0;
+
         // Iterate over the entire requested area
         for (let x = -halfW; x < halfW; x++) {
             for (let z = -halfD; z < halfD; z++) {
@@ -125,7 +127,6 @@ export class TownGenerator {
                 else if (dist > TOWN_RADIUS && dist <= TOWN_RADIUS + WALL_THICKNESS) {
                     isWall = true;
                     // Check for Gates (Roads passing through)
-                    // We check if it aligns with the main axis roads
                     if (Math.abs(x) <= MAIN_ROAD_WIDTH + 1 || Math.abs(z) <= MAIN_ROAD_WIDTH + 1) {
                         // Gate Opening
                         height = BASE_HEIGHT;
@@ -140,44 +141,48 @@ export class TownGenerator {
                 // --- ZONE 3: WILDERNESS (Outside) ---
                 else {
                     // Simplex noise for rolling hills
-                    // Scale: divide x/z by larger number for wider hills
                     const n = this.noise2D(x / 100, z / 100); 
-                    
                     // Height: map -1..1 to a height range (e.g. 8 to 28)
                     height = Math.floor((BASE_HEIGHT - 2) + (n + 1) * 10);
+                    surface = GRASS;
                 }
 
                 // ==============================================================
-                // 3. FILL THE VERTICAL COLUMN
+                // 3. FILL THE VERTICAL COLUMN (FIXED!)
                 // ==============================================================
                 
                 // A. Place the Surface Block
                 setBlockCallback(x, height, z, surface);
+                blockCount++;
 
-                // B. Fill underneath (Dirt/Stone)
-                // If it's a wall, fill completely with stone down to base
-                // If it's terrain, fill dirt for a few layers, then stone
-                const filler = (isTown || isWall) ? STONE_BRICK : DIRT;
-
-                for (let y = height - 1; y > 0; y--) {
-                    // Optimization: Only fill top 5 layers for dirt, or all for walls
+                // B. Fill underneath - ALWAYS fill down to y=1
+                // This ensures solid ground with no gaps
+                for (let y = height - 1; y >= 1; y--) {
                     if (isWall) {
+                        // Walls are solid stone all the way down
                         setBlockCallback(x, y, z, STONE_BRICK);
-                    } else if (height - y < 5) {
-                        setBlockCallback(x, y, z, filler);
+                        blockCount++;
+                    } else if (isTown) {
+                        // Town: stone foundation
+                        setBlockCallback(x, y, z, STONE_BRICK);
+                        blockCount++;
                     } else {
-                         // Don't render deep underground to save memory (hollow earth)
-                         // OR fill with stone if you want mining
-                         // setBlockCallback(x, y, z, STONE_BRICK); 
-                         break; 
+                        // Wilderness: dirt for top 4 layers, then stone
+                        if (height - y <= 4) {
+                            setBlockCallback(x, y, z, DIRT);
+                        } else {
+                            setBlockCallback(x, y, z, STONE_BRICK);
+                        }
+                        blockCount++;
                     }
                 }
                 
                 // C. Bedrock at the very bottom (y=0)
                 setBlockCallback(x, 0, z, STONE_BRICK);
+                blockCount++;
             }
         }
         
-        console.log("✅ 'Town of Begsinning' Generation Complete.");
+        console.log(`✅ 'Town of Beginning' Generation Complete. Total blocks: ${blockCount}`);
     }
 }
