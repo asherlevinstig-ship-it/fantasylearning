@@ -4,15 +4,11 @@ import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
-
-function setHud(text: string) {
-  if (hudEl) hudEl.textContent = text;
-}
+const setHud = (t: string) => { if (hudEl) hudEl.textContent = t; };
 
 async function main() {
   setHud("Starting noa...");
 
-  // Start the player above where our ground will be (y=0)
   const noa: any = new Engine({
     debug: true,
     chunkSize: 16,
@@ -29,24 +25,41 @@ async function main() {
   const GRASS = 1;
   const DIRT = 2;
 
-  // Register blocks (simple solid colored blocks)
-  // If your build ignores color, debug mode still usually shows something.
-  try {
-    noa.registry.registerBlock({ id: GRASS, solid: true, color: [0.2, 0.8, 0.2] });
-    noa.registry.registerBlock({ id: DIRT, solid: true, color: [0.5, 0.3, 0.1] });
-  } catch (e) {
-    console.warn("Block registration warning (may be OK):", e);
+  // ---- Rendering setup (Babylon materials) ----
+  // noa uses Babylon under the hood. In many builds, you must provide materials
+  // so the terrain mesher knows what to draw for each block id.
+  const scene = noa.rendering?._scene || noa.rendering?.scene;
+  const BABYLON = (window as any).BABYLON; // Babylon is usually global in noa builds
+
+  if (!scene || !BABYLON) {
+    console.warn("Scene or BABYLON not found. Terrain may not render. scene:", scene, "BABYLON:", BABYLON);
+  } else {
+    const grassMat = new BABYLON.StandardMaterial("grassMat", scene);
+    grassMat.diffuseColor = new BABYLON.Color3(0.2, 0.8, 0.2);
+
+    const dirtMat = new BABYLON.StandardMaterial("dirtMat", scene);
+    dirtMat.diffuseColor = new BABYLON.Color3(0.5, 0.3, 0.1);
+
+    // Register blocks + assign materials for rendering
+    noa.registry.registerBlock({
+      id: GRASS,
+      solid: true,
+      material: grassMat,
+    });
+
+    noa.registry.registerBlock({
+      id: DIRT,
+      solid: true,
+      material: dirtMat,
+    });
   }
 
-  // --- Worldgen: respond when noa asks for chunk voxel data ---
-  // Event + setChunkData are the intended APIs for feeding voxel data into noa. :contentReference[oaicite:1]{index=1}
+  // --- Worldgen: fill chunk voxel data ---
   const chunkSize: number = noa.world?._chunkSize ?? 16;
 
   noa.world.on(
     "worldDataNeeded",
-    (requestID: string, dataArr: any, cx: number, cy: number, cz: number, worldName: string) => {
-      // dataArr is an ndarray for this chunk that we should fill with voxel IDs
-      // coords passed are chunk coords. world voxel origin of chunk:
+    (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       const baseY = cy * chunkSize;
 
       for (let x = 0; x < chunkSize; x++) {
@@ -55,10 +68,6 @@ async function main() {
             const worldY = baseY + y;
 
             let id = AIR;
-
-            // Flat world:
-            // y === 0 -> grass surface
-            // y < 0 down to -3 -> dirt
             if (worldY === 0) id = GRASS;
             else if (worldY < 0 && worldY >= -3) id = DIRT;
 
@@ -67,46 +76,43 @@ async function main() {
         }
       }
 
-      // Hand the filled voxel array back to noa
       noa.world.setChunkData(requestID, dataArr, null);
     }
   );
 
-  // Log when player enters chunks (useful to confirm chunks are loading)
-  noa.world.on("playerEnteredChunk", (i: number, j: number, k: number) => {
-    // console.log("playerEnteredChunk:", i, j, k);
-  });
+  // --- Helpful camera sanity: look at origin ---
+  // If the camera is looking away, you’ll only see sky.
+  // Try to force camera to look slightly downward toward the ground.
+  try {
+    if (noa.camera && noa.camera.heading !== undefined) {
+      noa.camera.heading = 0;
+      noa.camera.pitch = -0.6; // look down a bit
+    }
+  } catch (e) {
+    console.warn("Camera tweak warning:", e);
+  }
 
-  // --- Connect to Colyseus (you already have this working) ---
+  // --- Sanity check after a short delay ---
+  setTimeout(() => {
+    const a = typeof noa.getBlock === "function" ? noa.getBlock(0, 0, 0) : "(noa.getBlock missing)";
+    const b = typeof noa.world?.getBlockID === "function" ? noa.world.getBlockID(0, 0, 0) : "(world.getBlockID missing)";
+    console.log("After worldgen: getBlock(0,0,0) =", a, "| world.getBlockID(0,0,0) =", b);
+
+    // Also: confirm meshes exist
+    const chunksKnown = noa.world?._chunksKnown ? Object.keys(noa.world._chunksKnown).length : "(unknown)";
+    console.log("chunksKnown:", chunksKnown);
+  }, 750);
+
+  // --- Connect to Colyseus ---
   setHud("Connecting to server...");
-  const serverUrl = window.location.origin;
-  const client = new Client(serverUrl);
+  const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
 
   console.log("✅ Joined:", room.roomId, room.sessionId);
   setHud(`Connected: ${room.sessionId}`);
-
   (window as any).room = room;
 
-  room.onMessage("worldInfo", (info) => {
-    console.log("📩 worldInfo", info);
-  });
-
-  room.onMessage("*", (type, message) => {
-    console.log("📩 message:", type, message);
-  });
-
-  // Sanity check after a short delay (gives time for initial chunks to generate)
-  setTimeout(() => {
-    try {
-      // Engine has getBlock; world also has getBlockID. Both should show GRASS at y=0 once chunk is loaded. :contentReference[oaicite:2]{index=2}
-      const a = typeof noa.getBlock === "function" ? noa.getBlock(0, 0, 0) : "(noa.getBlock missing)";
-      const b = typeof noa.world?.getBlockID === "function" ? noa.world.getBlockID(0, 0, 0) : "(world.getBlockID missing)";
-      console.log("After worldgen: getBlock(0,0,0) =", a, "| world.getBlockID(0,0,0) =", b);
-    } catch (e) {
-      console.warn("Sanity check failed:", e);
-    }
-  }, 750);
+  room.onMessage("worldInfo", (info) => console.log("📩 worldInfo", info));
 }
 
 main().catch((err) => {
