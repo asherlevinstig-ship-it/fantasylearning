@@ -147,8 +147,8 @@ async function main() {
   playerViewer.autoRotate = true; 
   playerViewer.autoRotateSpeed = 0.5;
 
-  // Load Valid Skin (Crafatar URL)
-  const SKIN_URL = "https://crafatar.com/skins/c06f89064c8a49119c29ea1dbd1aab82"; // Steve
+  // Load Valid Skin (Using CORS-friendly CDU Heads endpoint)
+  const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
   await playerViewer.loadSkin(SKIN_URL);
   
   const walkAnim = new WalkingAnimation(playerViewer);
@@ -183,7 +183,7 @@ async function main() {
   
   await handsViewer.loadSkin(SKIN_URL);
 
-  // FIX: Access body parts via playerObject.skin property
+  // Access body parts via playerObject.skin property
   const po = handsViewer.playerObject;
   
   if (po && po.skin) {
@@ -198,9 +198,6 @@ async function main() {
     po.skin.rightArm.visible = true;
 
     // Position arms slightly forward/inward for FPS view
-    // Note: The library uses Three.js objects
-    // This adjusts the 'rest' position of the arms relative to the body center
-    // Values are approximate to make them look like "hands holding items"
     po.skin.leftArm.rotation.x = -0.5;
     po.skin.rightArm.rotation.x = -0.5;
     
@@ -210,13 +207,6 @@ async function main() {
   }
 
   // Adjust camera to look down at where the hands are
-  // Camera is relative to the player center
-  handsViewer.camera.position.set(0, 0, 30); // Move camera back
-  handsViewer.camera.lookAt(0, 0, 0);       // Look at center
-  
-  // NOTE: skinview3d camera controls might override lookAt if orbit controls are active,
-  // but for a static view, we often just zoom/position the camera manually.
-  // Let's force a specific view:
   handsViewer.camera.position.set(0, 10, 40);
   handsViewer.camera.lookAt(0, -10, 0);
 
@@ -232,7 +222,7 @@ async function main() {
   // ========================================================================
   
   const swingHand = () => {
-    // FIX: Access via .skin
+    // Access via .skin
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
 
