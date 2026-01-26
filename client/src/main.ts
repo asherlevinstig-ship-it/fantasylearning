@@ -1,7 +1,7 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
-import { TownGenerator } from "./TownGenerator"; 
+import { TownGenerator } from "./TownGenerator";
 
 // --------------------------------------------------------------------------
 // HELPER: HUD
@@ -57,39 +57,31 @@ function now() {
 }
 
 async function main() {
-  setHud("Generating World...");
+  setHud("Initializing Town Generator...");
 
   // ========================================================================
-  // CONFIGURATION (SCALED UP)
+  // 1. CONFIGURATION
   // ========================================================================
-  const WORLD_RADIUS = 500; // World ends at x=500, z=500 (1000x1000 total)
+  const WORLD_RADIUS = 500; // 1000x1000 World
   const BORDER_BUFFER = 32;
 
   // ========================================================================
-  // 1. CLIENT-SIDE TOWN GENERATION (SHARED SEED)
+  // 2. INITIALIZE GENERATOR (LAZY MODE)
   // ========================================================================
-  // A fast lookup map for our static world data
-  // Key: "x,y,z" -> Value: BlockID
-  const clientWorldMap = new Map<string, number>();
+  // We do NOT generate the whole world at once anymore.
+  // We just initialize the blueprint so we can query it later per-chunk.
+  const townGen = new TownGenerator(1000, 1000, 12345);
 
-  // Generate 1000x1000 area (Same as Server)
-  const townGen = new TownGenerator(1000, 1000, 12345); 
-  
-  townGen.generate((x, y, z, id) => {
-      clientWorldMap.set(`${x},${y},${z}`, id);
-  });
-  
-  console.log(`✅ Client World Generated: ${clientWorldMap.size} blocks.`);
-  setHud("Starting noa...");
+  setHud("Starting Engine...");
 
   // ========================================================================
-  // 2. SETUP NOA ENGINE (Optimized Chunk Settings)
+  // 3. SETUP NOA ENGINE (OPTIMIZED)
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
     chunkSize: 32,           // Optimized: 32 blocks per chunk (fewer draw calls)
-    chunkAddDistance: 8,     // Optimized: Load chunks far away (~256 blocks)
-    chunkRemoveDistance: 10, // Optimized: Keep them in memory longer
+    chunkAddDistance: 6,     // View Distance: ~192 blocks radius
+    chunkRemoveDistance: 8,  // Unload Distance: ~256 blocks radius
     playerStart: [0, 15, 0], // Start safely above ground
     texturePath: ""          // Not used with color materials
   });
@@ -98,13 +90,11 @@ async function main() {
   // ------------------------------------------------------------------------
   // ACTION BINDING: 'F' acts as 'Fire' (Left Click)
   // ------------------------------------------------------------------------
-  // FIX: Use 'KeyF' (physical key) instead of 'F' (character)
-  // We also bind 'f' just in case, but 'KeyF' is the robust standard.
   noa.inputs.bind('fire', 'KeyF'); 
-  noa.inputs.bind('fire', 'f'); 
+  noa.inputs.bind('fire', 'f'); // Fallback
 
   // ========================================================================
-  // 3. WORLD BORDER LOGIC
+  // 4. WORLD BORDER LOGIC
   // ========================================================================
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
@@ -123,11 +113,10 @@ async function main() {
   });
 
   // ========================================================================
-  // 4. REGISTER MATERIALS & BLOCKS
+  // 5. REGISTER MATERIALS & BLOCKS
   // ========================================================================
   
   // -- A. Register Materials --
-  // Colors are [R, G, B] from 0.0 to 1.0
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
@@ -141,31 +130,36 @@ async function main() {
   const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
   const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
 
-  const chunkSize: number = noa.world?._chunkSize ?? 32;
-  
-  // ------------------------------------------------------------------------
-  // CHUNK LOADING (FROM GENERATED MAP)
-  // ------------------------------------------------------------------------
+  // ========================================================================
+  // 6. CHUNK LOADING (LAZY EVALUATION)
+  // ========================================================================
+  // This is the CRITICAL fix. We query the generator for each block
+  // only when the engine asks for a specific chunk.
+  const chunkSize = noa.world._chunkSize;
+
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Optimization: Don't render far outside the world boundaries
+      // Optimization: Don't render far outside the world
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
         return;
       }
 
+      // Fill the chunk by querying the generator
       for (let x = 0; x < chunkSize; x++) {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
-            const gx = chunkX + x;
-            const gy = chunkY + y;
-            const gz = chunkZ + z;
+            const globalX = chunkX + x;
+            const globalY = chunkY + y;
+            const globalZ = chunkZ + z;
 
-            const id = clientWorldMap.get(`${gx},${gy},${gz}`) || AIR;
+            // Calculates the block on-the-fly (Fast & Low Memory)
+            const id = townGen.getBlockID(globalX, globalY, globalZ);
+            
             dataArr.set(x, y, z, id);
           }
         }
@@ -177,7 +171,7 @@ async function main() {
   const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
 
   // ========================================================================
-  // 5. HANDS OVERLAY
+  // 7. HANDS OVERLAY
   // ========================================================================
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
@@ -196,7 +190,6 @@ async function main() {
 
   const po = handsViewer.playerObject;
   if (po && po.skin) {
-    // Hide everything except the right arm
     po.skin.head.visible = false;
     po.skin.body.visible = false;
     po.skin.leftLeg.visible = false;
@@ -204,22 +197,18 @@ async function main() {
     po.skin.leftArm.visible = false; 
     po.skin.rightArm.visible = true;
 
-    // Position the right arm like Minecraft FPS
-    po.skin.rightArm.rotation.x = -0.4; // Tilt forward
-    po.skin.rightArm.rotation.z = 0.2;  // Slight outward angle
-    po.skin.rightArm.rotation.y = 0.1;  // Slight twist
-    
-    // Move arm to be centered in our canvas view
+    po.skin.rightArm.rotation.x = -0.4;
+    po.skin.rightArm.rotation.z = 0.2;
+    po.skin.rightArm.rotation.y = 0.1;
     po.skin.rightArm.position.set(-2, -6, 0);
   }
 
-  // Camera: Close up, looking at the arm from the player's POV
   handsViewer.camera.position.set(-4, 0, -8);
   handsViewer.camera.lookAt(-2, -8, 4);
   startThrottledRender(handsViewer, 30);
 
   // ========================================================================
-  // 6. INTERACTION
+  // 8. INTERACTION
   // ========================================================================
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
@@ -247,7 +236,7 @@ async function main() {
   };
 
   // ========================================================================
-  // 7. COLYSEUS NETWORKING
+  // 9. COLYSEUS NETWORKING
   // ========================================================================
   setHud("Connecting...");
   const client = new Client(window.location.origin);
@@ -260,21 +249,15 @@ async function main() {
   // Handle Server Updates
   room.onMessage("blockUpdate", (msg) => {
     noa.setBlock(msg.id, msg.x, msg.y, msg.z);
-    clientWorldMap.set(`${msg.x},${msg.y},${msg.z}`, msg.id);
   });
 
   // LEFT CLICK or 'F' Key: Break Block
-  // Both trigger the 'fire' event.
-  // We added 'KeyF' to the binding above, so this will now catch the keypress.
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
       room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
-      
-      // Optimistic Update
       noa.setBlock(AIR, pos[0], pos[1], pos[2]);
-      clientWorldMap.set(`${pos[0]},${pos[1]},${pos[2]}`, AIR);
     }
   });
 
@@ -284,15 +267,12 @@ async function main() {
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
       room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
-      
-      // Optimistic Update
       noa.setBlock(GRASS, pos[0], pos[1], pos[2]);
-      clientWorldMap.set(`${pos[0]},${pos[1]},${pos[2]}`, GRASS);
     }
   });
 
   // ========================================================================
-  // 8. RESIZE HANDLING
+  // 10. RESIZE HANDLING
   // ========================================================================
   const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
   const resizeHands = () => {
