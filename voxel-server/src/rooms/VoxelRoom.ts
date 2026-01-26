@@ -32,18 +32,19 @@ export class VoxelRoom extends Room<VoxelState> {
     // ==================================================================
     // 1. TOWN GENERATION (Server-Side)
     // ==================================================================
-    console.log("🏙️ Starting Town Generation...");
+    console.log("🏙️ Starting Town Generation (Server Physics)...");
     
-    // Initialize the generator (200x200 area, seed 12345)
-    const townGen = new TownGenerator(200, 200, 12345);
+    // SCALE UP: Generate 1000x1000 area (radius 500) to match client
+    const townGen = new TownGenerator(1000, 1000, 12345);
 
     // Generate the town and store it directly into the server's ChunkStore
     townGen.generate((x, y, z, id) => {
         // This populates the server's memory with roads, plots, and terrain
+        // so that collision detection works correctly.
         this.chunks.setBlock(x, y, z, id);
     });
 
-    console.log("✅ Town Generation Complete & Loaded into Memory.");
+    console.log("✅ Server Town Generation Complete & Loaded into Memory.");
     // ==================================================================
 
 
@@ -59,7 +60,7 @@ export class VoxelRoom extends Room<VoxelState> {
     this.state.players.set(client.sessionId, new PlayerState());
     this.subscriptions.set(client.sessionId, new Set());
 
-    // optional: send seed / world settings once
+    // Send seed / world settings once
     client.send("worldInfo", { seed: 12345, chunkSize: 16, height: 256 });
   }
 
@@ -154,7 +155,7 @@ export class VoxelRoom extends Room<VoxelState> {
       if (cs) cs.version = this.chunks.getVersion(key);
     }
 
-    // push sblock edit event to subscribed clients only
+    // push block edit event to subscribed clients only
     for (const [sessionId, sub] of this.subscriptions.entries()) {
       if (changedKeys.some(k => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);

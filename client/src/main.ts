@@ -57,12 +57,12 @@ function now() {
 }
 
 async function main() {
-  setHud("Generating Town...");
+  setHud("Generating World...");
 
   // ========================================================================
-  // CONFIGURATION
+  // CONFIGURATION (SCALED UP)
   // ========================================================================
-  const WORLD_RADIUS = 100;
+  const WORLD_RADIUS = 500; // World ends at x=500, z=500 (1000x1000 total)
   const BORDER_BUFFER = 32;
 
   // ========================================================================
@@ -72,7 +72,8 @@ async function main() {
   // Key: "x,y,z" -> Value: BlockID
   const clientWorldMap = new Map<string, number>();
 
-  const townGen = new TownGenerator(200, 200, 12345); // SAME SEED AS SERVER
+  // Generate 1000x1000 area (Same as Server)
+  const townGen = new TownGenerator(1000, 1000, 12345); 
   
   townGen.generate((x, y, z, id) => {
       clientWorldMap.set(`${x},${y},${z}`, id);
@@ -89,11 +90,12 @@ async function main() {
     chunkSize: 16,
     chunkAddDistance: 2,
     chunkRemoveDistance: 3,
-    playerStart: [0, 15, 0], 
+    playerStart: [0, 15, 0], // Start safely above ground
     texturePath: "" // Not used with color materials
   });
   (window as any).noa = noa;
 
+  // Bind 'F' key to 'fire' (Action)
   noa.inputs.bind('fire', 'F');
 
   // ========================================================================
@@ -264,6 +266,7 @@ async function main() {
   console.log("✅ Joined:", room.roomId, room.sessionId);
   setHud(`Connected: ${room.sessionId}`);
 
+  // Handle Server Updates
   room.onMessage("blockUpdate", (msg) => {
     noa.setBlock(msg.id, msg.x, msg.y, msg.z);
     clientWorldMap.set(`${msg.x},${msg.y},${msg.z}`, msg.id);
