@@ -98,7 +98,10 @@ async function main() {
   // ------------------------------------------------------------------------
   // ACTION BINDING: 'F' acts as 'Fire' (Left Click)
   // ------------------------------------------------------------------------
-  noa.inputs.bind('fire', 'F');
+  // FIX: Use 'KeyF' (physical key) instead of 'F' (character)
+  // We also bind 'f' just in case, but 'KeyF' is the robust standard.
+  noa.inputs.bind('fire', 'KeyF'); 
+  noa.inputs.bind('fire', 'f'); 
 
   // ========================================================================
   // 3. WORLD BORDER LOGIC
@@ -261,7 +264,8 @@ async function main() {
   });
 
   // LEFT CLICK or 'F' Key: Break Block
-  // Both trigger the 'fire' event
+  // Both trigger the 'fire' event.
+  // We added 'KeyF' to the binding above, so this will now catch the keypress.
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
