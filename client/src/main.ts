@@ -83,20 +83,21 @@ async function main() {
   setHud("Starting noa...");
 
   // ========================================================================
-  // 2. SETUP NOA ENGINE
+  // 2. SETUP NOA ENGINE (Optimized Chunk Settings)
   // ========================================================================
-  // NOTE: Increased chunk distances for much better draw distance!
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 32,           // Larger chunks = fewer mesh objects
-    chunkAddDistance: 8,     // Load chunks within 8 chunks (~256 blocks view distance)
-    chunkRemoveDistance: 10, // Unload at 10 chunks (~320 blocks)
+    chunkSize: 32,           // Optimized: 32 blocks per chunk (fewer draw calls)
+    chunkAddDistance: 8,     // Optimized: Load chunks far away (~256 blocks)
+    chunkRemoveDistance: 10, // Optimized: Keep them in memory longer
     playerStart: [0, 15, 0], // Start safely above ground
     texturePath: ""          // Not used with color materials
   });
   (window as any).noa = noa;
 
-  // Bind 'F' key to 'fire' (Action)
+  // ------------------------------------------------------------------------
+  // ACTION BINDING: 'F' acts as 'Fire' (Left Click)
+  // ------------------------------------------------------------------------
   noa.inputs.bind('fire', 'F');
 
   // ========================================================================
@@ -119,42 +120,23 @@ async function main() {
   });
 
   // ========================================================================
-  // 4. REGISTER MATERIALS & BLOCKS (FIXED FOR NOA v0.33)
+  // 4. REGISTER MATERIALS & BLOCKS
   // ========================================================================
   
-  // -- A. Register Materials First --
+  // -- A. Register Materials --
   // Colors are [R, G, B] from 0.0 to 1.0
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
 
-  // -- B. Register Blocks referencing Material Names --
+  // -- B. Register Blocks --
   const AIR = 0;
   
-  const GRASS = noa.registry.registerBlock(1, { 
-    material: "grass", 
-    solid: true, 
-    opaque: true 
-  });
-  
-  const DIRT = noa.registry.registerBlock(2, { 
-    material: "dirt", 
-    solid: true, 
-    opaque: true 
-  });
-  
-  const STONE_BRICK = noa.registry.registerBlock(3, { 
-    material: "stone", 
-    solid: true, 
-    opaque: true 
-  });
-  
-  const GRAVEL = noa.registry.registerBlock(4, { 
-    material: "gravel", 
-    solid: true, 
-    opaque: true 
-  });
+  const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
+  const DIRT = noa.registry.registerBlock(2, { material: "dirt", solid: true, opaque: true });
+  const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
+  const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
 
   const chunkSize: number = noa.world?._chunkSize ?? 32;
   
@@ -166,7 +148,7 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Optimization: Don't render far outside the world
+      // Optimization: Don't render far outside the world boundaries
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
@@ -211,6 +193,7 @@ async function main() {
 
   const po = handsViewer.playerObject;
   if (po && po.skin) {
+    // Hide everything except the right arm
     po.skin.head.visible = false;
     po.skin.body.visible = false;
     po.skin.leftLeg.visible = false;
@@ -218,12 +201,16 @@ async function main() {
     po.skin.leftArm.visible = false; 
     po.skin.rightArm.visible = true;
 
-    po.skin.rightArm.rotation.x = -0.4;
-    po.skin.rightArm.rotation.z = 0.2;
-    po.skin.rightArm.rotation.y = 0.1;
+    // Position the right arm like Minecraft FPS
+    po.skin.rightArm.rotation.x = -0.4; // Tilt forward
+    po.skin.rightArm.rotation.z = 0.2;  // Slight outward angle
+    po.skin.rightArm.rotation.y = 0.1;  // Slight twist
+    
+    // Move arm to be centered in our canvas view
     po.skin.rightArm.position.set(-2, -6, 0);
   }
 
+  // Camera: Close up, looking at the arm from the player's POV
   handsViewer.camera.position.set(-4, 0, -8);
   handsViewer.camera.lookAt(-2, -8, 4);
   startThrottledRender(handsViewer, 30);
@@ -273,6 +260,8 @@ async function main() {
     clientWorldMap.set(`${msg.x},${msg.y},${msg.z}`, msg.id);
   });
 
+  // LEFT CLICK or 'F' Key: Break Block
+  // Both trigger the 'fire' event
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
@@ -285,6 +274,7 @@ async function main() {
     }
   });
 
+  // RIGHT CLICK: Place Block
   noa.inputs.down.on("alt-fire", () => {
     swingHand();
     if (noa.targetedBlock) {
