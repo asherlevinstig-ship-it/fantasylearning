@@ -13,33 +13,35 @@ async function main() {
     chunkAddDistance: 2,
     chunkRemoveDistance: 3,
     playerStart: [0, 6, 0],
-    // Explicitly empty texturePath to prevent 404 errors looking for files
-    texturePath: "" 
+    texturePath: "" // Important: prevents 404s on missing textures
   });
 
   console.log("noa-engine started:", noa?.version);
   (window as any).noa = noa;
 
-  // --- 1. Register Materials (Flat Colors) ---
-  // Args: name, color [r,g,b], textureURL (null), texHasAlpha (false)
-  noa.registry.registerMaterial("grass_mat", [0.1, 0.8, 0.1], null, false);
-  noa.registry.registerMaterial("dirt_mat", [0.5, 0.3, 0.1], null, false);
+  // --- 1. Register Materials (v0.33 Object Syntax) ---
+  noa.registry.registerMaterial("grass", {
+    color: [0.2, 0.8, 0.2], 
+    // textureURL: null,   // optional
+    // texHasAlpha: false, // optional
+  });
+
+  noa.registry.registerMaterial("dirt", {
+    color: [0.55, 0.35, 0.17],
+  });
 
   // --- 2. Register Blocks ---
   const AIR = 0;
   
-  // Register Grass (ID 1)
-  const GRASS = 1;
-  noa.registry.registerBlock(GRASS, {
-    material: "grass_mat",
+  // Note: registerBlock returns the integer ID (e.g. 1), which we store in GRASS
+  const GRASS = noa.registry.registerBlock(1, {
+    material: "grass",
     solid: true,
     opaque: true,
   });
 
-  // Register Dirt (ID 2)
-  const DIRT = 2;
-  noa.registry.registerBlock(DIRT, {
-    material: "dirt_mat",
+  const DIRT = noa.registry.registerBlock(2, {
+    material: "dirt",
     solid: true,
     opaque: true,
   });
@@ -61,8 +63,8 @@ async function main() {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
             const worldY = baseY + y;
+
             let id = AIR;
-            
             if (worldY === 0) id = GRASS;
             else if (worldY < 0 && worldY >= -3) id = DIRT;
 
@@ -83,11 +85,8 @@ async function main() {
   setHud(`Connected: ${room.sessionId}`);
   (window as any).room = room;
 
-  // Listen for block updates from server
-  room.onMessage("blockUpdate", (msg) => {
-    // When server says a block changed, update local noa world
-    noa.setBlock(msg.id, msg.x, msg.y, msg.z);
-  });
+  room.onMessage("worldInfo", (info) => console.log("📩 worldInfo", info));
+  room.onMessage("*", (type, msg) => console.log("📩 message:", type, msg));
 }
 
 main().catch((err) => {
