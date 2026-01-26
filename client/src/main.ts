@@ -1,55 +1,58 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 
+// --- Helper: Create a solid color texture in memory ---
+function makeTexture(colorHex: string) {
+  const c = document.createElement("canvas");
+  c.width = 16; c.height = 16;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = colorHex;
+  ctx.fillRect(0, 0, 16, 16);
+  return c.toDataURL(); // Returns a "data:image/png..." string
+}
+
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { if (hudEl) hudEl.textContent = t; };
 
 async function main() {
   setHud("Starting noa...");
 
+  // 1. Generate texture "files"
+  const texGrass = makeTexture("#33cc33"); // Green
+  const texDirt = makeTexture("#8b5a2b");  // Brown
+
   const noa: any = new Engine({
     debug: true,
     chunkSize: 16,
     chunkAddDistance: 2,
     chunkRemoveDistance: 3,
-    playerStart: [0, 6, 0],
-    texturePath: "" // Important: prevents 404s on missing textures
+    playerStart: [0, 10, 0], // Start high to fall onto ground
+    texturePath: ""          // We are passing full data URLs, so no path needed
   });
 
   console.log("noa-engine started:", noa?.version);
   (window as any).noa = noa;
 
-  // --- 1. Register Materials (v0.33 Object Syntax) ---
-  noa.registry.registerMaterial("grass", {
-    color: [0.2, 0.8, 0.2], 
-    // textureURL: null,   // optional
-    // texHasAlpha: false, // optional
-  });
-
-  noa.registry.registerMaterial("dirt", {
-    color: [0.55, 0.35, 0.17],
-  });
-
-  // --- 2. Register Blocks ---
+  // --- 2. Register Blocks (Using Textures!) ---
   const AIR = 0;
   
-  // Note: registerBlock returns the integer ID (e.g. 1), which we store in GRASS
-  const GRASS = noa.registry.registerBlock(1, {
-    material: "grass",
+  // Register Grass
+  const GRASS = 1;
+  noa.registry.registerBlock(GRASS, {
+    material: "grass", // Optional name
     solid: true,
     opaque: true,
+    texture: texGrass, // <--- IMPORTANT: Pass the Data URL here
   });
 
-  const DIRT = noa.registry.registerBlock(2, {
+  // Register Dirt
+  const DIRT = 2;
+  noa.registry.registerBlock(DIRT, {
     material: "dirt",
     solid: true,
     opaque: true,
+    texture: texDirt,  // <--- IMPORTANT: Pass the Data URL here
   });
-
-  // Look down so you definitely see ground
-  try {
-    if (noa.camera) noa.camera.pitch = -0.6;
-  } catch {}
 
   // --- 3. World Generation ---
   const chunkSize: number = noa.world?._chunkSize ?? 16;
@@ -63,8 +66,9 @@ async function main() {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
             const worldY = baseY + y;
-
             let id = AIR;
+            
+            // Simple flat ground at y=0, dirt below
             if (worldY === 0) id = GRASS;
             else if (worldY < 0 && worldY >= -3) id = DIRT;
 
@@ -76,8 +80,17 @@ async function main() {
     }
   );
 
-  // --- 4. Colyseus Connection ---
-  setHud("Connecting to server...");
+  // --- 4. Debug: Check if blocks exist ---
+  setTimeout(() => {
+     // Check the block directly under the center of the world
+     const id = noa.getBlock(0, 0, 0);
+     console.log("🔍 Debug Check - Block at (0,0,0) ID is:", id);
+     if (id === 0) console.error("⚠️ World Gen failed: Block is AIR");
+     else console.log("✅ World Gen success: Block exists");
+  }, 2000);
+
+  // --- 5. Colyseus Connection ---
+  setHud("Connecting...");
   const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
 
@@ -85,8 +98,9 @@ async function main() {
   setHud(`Connected: ${room.sessionId}`);
   (window as any).room = room;
 
-  room.onMessage("worldInfo", (info) => console.log("📩 worldInfo", info));
-  room.onMessage("*", (type, msg) => console.log("📩 message:", type, msg));
+  room.onMessage("blockUpdate", (msg) => {
+    noa.setBlock(msg.id, msg.x, msg.y, msg.z);
+  });
 }
 
 main().catch((err) => {
