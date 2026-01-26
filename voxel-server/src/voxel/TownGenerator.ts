@@ -13,16 +13,15 @@ export class TownGenerator {
     depth: number;
     noise2D: any;
 
-    // Optimization: Store only 2D layout data, not 3D blocks
-    // This allows massive worlds without running out of RAM
+    // Optimization: Store only 2D layout data
     private houseMap = new Set<string>();
     
     // Configuration
-    private townRadius = 150;
+    private townRadius = 150;     // Radius of the flat town area
     private wallThickness = 3;
     private wallHeight = 6;
-    private baseHeight = 10;
-    private mainRoadWidth = 4; // Half-width
+    private baseHeight = 10;      // The universal ground level (y=10)
+    private mainRoadWidth = 4;    // Half-width
 
     constructor(width: number, depth: number, seed: number) {
         this.width = width;
@@ -32,15 +31,15 @@ export class TownGenerator {
         ROT.RNG.setSeed(seed);
         this.noise2D = createNoise2D(() => ROT.RNG.getUniform());
 
-        // Pre-calculate the 2D layout (just the blueprint)
+        // Pre-calculate the town blueprint
         this.initLayout();
     }
 
     // --------------------------------------------------------------------------
-    // 1. LAYOUT PRE-CALCULATION (Runs once on start)
+    // 1. LAYOUT PRE-CALCULATION
     // --------------------------------------------------------------------------
     private initLayout() {
-        console.log("📐 Calculating Town Layout...");
+        console.log("📐 Calculating Flat Town Layout...");
         
         const houseAttempts = 400; 
         const PLAZA_RADIUS = 20;
@@ -72,13 +71,11 @@ export class TownGenerator {
             if (safe) {
                 for (let px = hx - 3; px <= hx + 3; px++) {
                     for (let pz = hz - 3; pz <= hz + 3; pz++) {
-                        // Storing "x,z" strings is very memory efficient
                         this.houseMap.add(`${px},${pz}`);
                     }
                 }
             }
         }
-        console.log(`✅ Layout Ready: ${houseAttempts} plot attempts processed.`);
     }
 
     // Helper: Defines where roads are located
@@ -94,27 +91,26 @@ export class TownGenerator {
     }
 
     // --------------------------------------------------------------------------
-    // 2. LAZY BLOCK GENERATION (Runs millions of times, must be fast!)
+    // 2. LAZY BLOCK GENERATION
     // --------------------------------------------------------------------------
     public getBlockID(x: number, y: number, z: number): number {
         
-        // Step A: Determine Terrain Height & Surface Type at (x, z)
         const dist = Math.sqrt(x*x + z*z);
         let height = 0;
         let surface = GRASS;
         let isWall = false;
 
-        // --- ZONE 1: INSIDE THE TOWN ---
+        // --- ZONE 1: INSIDE THE TOWN (ALL FLAT) ---
         if (dist <= this.townRadius) {
-            height = this.baseHeight; // Flat town level
+            height = this.baseHeight; // STRICTLY 10. No bumps.
             
             if (dist <= 20) {
                 surface = STONE_BRICK; // Plaza
             } else if (this.isRoad(x, z)) {
                 surface = GRAVEL; // Roads
             } else if (this.houseMap.has(`${x},${z}`)) {
-                surface = STONE_BRICK; // House Foundation
-                height += 1; // Foundations sit 1 block higher
+                surface = STONE_BRICK; // House Foundation (Flat)
+                // height is NOT increased here anymore
             } else {
                 surface = GRASS; // Lawns
             }
@@ -125,7 +121,7 @@ export class TownGenerator {
             isWall = true;
             // Gates (Roads passing through)
             if (Math.abs(x) <= this.mainRoadWidth + 1 || Math.abs(z) <= this.mainRoadWidth + 1) {
-                height = this.baseHeight;
+                height = this.baseHeight; // Gate floor is flat
                 surface = GRAVEL;
             } else {
                 // Solid Wall
@@ -136,12 +132,14 @@ export class TownGenerator {
 
         // --- ZONE 3: WILDERNESS ---
         else {
-            // Simplex noise for rolling hills
+            // Simplex noise for hills outside the walls
             const n = this.noise2D(x / 100, z / 100); 
             height = Math.floor((this.baseHeight - 2) + (n + 1) * 10);
         }
 
-        // Step B: Return Block ID based on Y level
+        // ----------------------------------------
+        // RETURN BLOCK ID
+        // ----------------------------------------
         
         // 1. Above Ground -> Air
         if (y > height) return AIR;
@@ -154,16 +152,10 @@ export class TownGenerator {
 
         // 4. Fill Logic (Underground)
         if (isWall) {
-            // Walls are solid stone all the way down
             return STONE_BRICK; 
         } else {
-            // Normal ground: Topsoil logic
-            // If we are just below surface, Dirt. Deep down, Stone (optional, saves calc to just be dirt/stone)
+            // Normal ground
             if (height - y < 5) return DIRT;
-            
-            // Optimization: "Hollow Earth" or Solid Stone?
-            // Returning solid blocks everywhere is fine for physics, 
-            // but for rendering, internal blocks are culled anyway.
             return STONE_BRICK; 
         }
     }
