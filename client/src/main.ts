@@ -1,6 +1,6 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
-import { SkinViewer, WalkingAnimation } from "skinview3d";
+import { SkinViewer } from "skinview3d"; // Removed WalkingAnimation as it's no longer needed for hands only
 
 // --------------------------------------------------------------------------
 // HELPER: HUD
@@ -117,45 +117,7 @@ async function main() {
   const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
 
   // ========================================================================
-  // 3. PLAYER OVERLAY (Bottom-Left)
-  // ========================================================================
-  const playerCanvas = createOverlayCanvas({
-    id: "player-view",
-    width: 160,
-    height: 160,
-    style: {
-      left: "12px",
-      bottom: "12px",
-      top: "auto",
-      width: "160px", 
-      height: "160px",
-      borderRadius: "12px",
-      background: "rgba(0,0,0,0.2)",
-    },
-  });
-
-  const playerViewer = new SkinViewer({
-    canvas: playerCanvas,
-    width: 160,
-    height: 160,
-  });
-
-  // Optimize Player Viewer
-  playerViewer.fov = 50;
-  playerViewer.zoom = 0.8;
-  playerViewer.autoRotate = true; 
-  playerViewer.autoRotateSpeed = 0.5;
-  await playerViewer.loadSkin(SKIN_URL);
-  
-  const walkAnim = new WalkingAnimation(playerViewer);
-  walkAnim.speed = 1.0;
-  playerViewer.animation = walkAnim;
-
-  // Run at low FPS (15) since it's just a UI element
-  startThrottledRender(playerViewer, 15);
-
-  // ========================================================================
-  // 4. HANDS OVERLAY (FPS View)
+  // 3. HANDS OVERLAY (FPS View)
   // ========================================================================
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
@@ -216,7 +178,7 @@ async function main() {
   startThrottledRender(handsViewer, 30);
 
   // ========================================================================
-  // 5. INTERACTION & ANIMATION
+  // 4. INTERACTION & ANIMATION
   // ========================================================================
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
@@ -242,7 +204,7 @@ async function main() {
   };
 
   // ========================================================================
-  // 6. COLYSEUS NETWORKING
+  // 5. COLYSEUS NETWORKING
   // ========================================================================
   setHud("Connecting...");
   const client = new Client(window.location.origin);
@@ -275,7 +237,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 7. WINDOW RESIZE HANDLING
+  // 6. WINDOW RESIZE HANDLING
   // ========================================================================
   const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
 
