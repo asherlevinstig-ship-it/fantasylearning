@@ -14,6 +14,7 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
+    "@babylonjs/core": "^8.47.0",
     "colyseus.js": "^0.16.22",
     "noa-engine": "^0.33.0"
   }
