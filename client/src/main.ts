@@ -1,6 +1,6 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
-import { SkinViewer } from "skinview3d"; // Removed WalkingAnimation as it's no longer needed for hands only
+import { SkinViewer } from "skinview3d";
 
 // --------------------------------------------------------------------------
 // HELPER: HUD
@@ -36,8 +36,6 @@ function createOverlayCanvas(opts: {
   
   Object.assign(c.style, {
     position: "fixed",
-    left: "0px",
-    top: "0px",
     pointerEvents: "none",
     imageRendering: "pixelated",
     zIndex: "100",
@@ -117,29 +115,29 @@ async function main() {
   const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
 
   // ========================================================================
-  // 3. HANDS OVERLAY (FPS View)
+  // 3. HANDS OVERLAY (Classic Minecraft FPS View)
   // ========================================================================
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
-    width: window.innerWidth,
-    height: window.innerHeight * 0.28, // Reduced to 28vh
+    width: 400,
+    height: 400,
     style: {
-      left: "0px",
-      bottom: "0px",
+      left: "auto",      // Unset left
+      right: "0px",      // Anchor to right
+      bottom: "0px",     // Anchor to bottom
       top: "auto",
-      width: "100vw",
-      height: "28vh", // Reduced height
+      width: "35vw",     // Responsive width for the arm area
+      height: "45vh",    // Responsive height
       background: "transparent",
     },
   });
 
   const handsViewer = new SkinViewer({
     canvas: handsCanvas,
-    width: handsCanvas.width,
-    height: handsCanvas.height,
+    width: 400,
+    height: 400,
   });
 
-  // FPS Camera Setup
   handsViewer.fov = 70;
   handsViewer.zoom = 1.0;
   
@@ -147,58 +145,63 @@ async function main() {
 
   const po = handsViewer.playerObject;
   if (po && po.skin) {
-    // 1. Rotate player 180 degrees so we see the "back" of the arms (FPS style)
-    po.rotation.y = Math.PI;
-
-    // 2. Hide body parts
+    // Hide everything except the right arm
     po.skin.head.visible = false;
     po.skin.body.visible = false;
     po.skin.leftLeg.visible = false;
     po.skin.rightLeg.visible = false;
-    po.skin.leftArm.visible = true;
+    po.skin.leftArm.visible = false; // Hide left arm too!
     po.skin.rightArm.visible = true;
 
-    // 3. Position Arms (Wider & Angled for FPS view)
-    // Left Arm
-    po.skin.leftArm.rotation.x = -Math.PI / 4; // Point forward
-    po.skin.leftArm.rotation.z = -0.3;         // Spread out to left
-    po.skin.leftArm.position.x = 2.5;          // Move wider from body center
+    // Position the right arm like Minecraft FPS
+    // Arm angled forward-down, as if holding a tool or idle
+    po.skin.rightArm.rotation.x = -0.4;  // Tilt forward
+    po.skin.rightArm.rotation.z = 0.2;   // Slight outward angle
+    po.skin.rightArm.rotation.y = 0.1;   // Slight twist
     
-    // Right Arm
-    po.skin.rightArm.rotation.x = -Math.PI / 4; // Point forward
-    po.skin.rightArm.rotation.z = 0.3;          // Spread out to right
-    po.skin.rightArm.position.x = -2.5;         // Move wider from body center
+    // Move arm to be centered in our canvas view (which is already in the corner)
+    po.skin.rightArm.position.set(-2, -6, 0);
   }
 
-  // Camera looking slightly down at the arms
-  handsViewer.camera.position.set(0, 10, -25); // Behind the player (negative Z)
-  handsViewer.camera.lookAt(0, -5, 10);        // Look forward/down
+  // Camera: Close up, looking at the arm from the player's POV
+  // Positioned slightly behind and to the left of the arm to frame it
+  handsViewer.camera.position.set(-4, 0, -8);
+  handsViewer.camera.lookAt(-2, -8, 4);
 
-  // Run at medium FPS (30) for responsiveness without burning GPU
+  // Run at 30 FPS for smooth animation
   startThrottledRender(handsViewer, 30);
 
   // ========================================================================
-  // 4. INTERACTION & ANIMATION
+  // 4. INTERACTION & ANIMATION (Minecraft Swing)
   // ========================================================================
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
 
     const start = now();
-    const duration = 150; 
-    const baseRotX = -Math.PI / 4; 
+    const duration = 200; // Fast snap
+    
+    // Base rotations (must match setup above)
+    const baseX = -0.4;
+    const baseZ = 0.2;
 
     const animate = () => {
       const t = now() - start;
       const k = Math.min(1, t / duration);
       
-      const swing = Math.sin(k * Math.PI) * 1.5;
-      skin.rightArm.rotation.x = baseRotX - swing; 
-      // Note: Swinging "negative" moves it "up" relative to the new rotation logic,
-      // adjust sign if it swings the wrong way.
+      // Swing arc: arm swings down then back up
+      const swing = Math.sin(k * Math.PI);
+      
+      // Apply swing
+      skin.rightArm.rotation.x = baseX - swing * 1.2;  // Swing down vertically
+      skin.rightArm.rotation.z = baseZ - swing * 0.3;  // Swing inward slightly
 
       if (k < 1) requestAnimationFrame(animate);
-      else skin.rightArm.rotation.x = baseRotX;
+      else {
+        // Reset to exact base values
+        skin.rightArm.rotation.x = baseX;
+        skin.rightArm.rotation.z = baseZ;
+      }
     };
     requestAnimationFrame(animate);
   };
@@ -242,12 +245,14 @@ async function main() {
   const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
 
   const resizeHands = () => {
-    const w = Math.floor(window.innerWidth * OVERLAY_DPR);
-    const h = Math.floor(window.innerHeight * 0.28 * OVERLAY_DPR); // 28vh
+    // Scale canvas based on window size, but cap it at 400px raw size
+    // ensuring it doesn't get pixelated on high DPI screens
+    const rawSize = Math.min(window.innerWidth * 0.35, 400);
+    const size = Math.floor(rawSize * OVERLAY_DPR);
     
-    handsCanvas.width = w;
-    handsCanvas.height = h;
-    handsViewer.setSize(w, h);
+    handsCanvas.width = size;
+    handsCanvas.height = size;
+    handsViewer.setSize(size, size);
   };
 
   window.addEventListener("resize", resizeHands);
