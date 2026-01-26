@@ -9,7 +9,7 @@ const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { if (hudEl) hudEl.textContent = t; };
 
 // --------------------------------------------------------------------------
-// HELPER: TEXTURE GENERATION (Fixes "Invisible World" bug)
+// HELPER: TEXTURE GENERATION
 // --------------------------------------------------------------------------
 function makeTexture(colorHex: string) {
   const c = document.createElement("canvas");
@@ -17,11 +17,11 @@ function makeTexture(colorHex: string) {
   const ctx = c.getContext("2d")!;
   ctx.fillStyle = colorHex;
   ctx.fillRect(0, 0, 16, 16);
-  return c.toDataURL(); // Returns "data:image/png..."
+  return c.toDataURL();
 }
 
 // --------------------------------------------------------------------------
-// HELPER: OVERLAY CANVAS (Fixes "Invisible Hands" bug via zIndex)
+// HELPER: OVERLAY CANVAS
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: {
   id: string;
@@ -38,14 +38,31 @@ function createOverlayCanvas(opts: {
     position: "fixed",
     left: "0px",
     top: "0px",
-    pointerEvents: "none", // Let clicks pass through to the game
+    pointerEvents: "none",
     imageRendering: "pixelated",
-    zIndex: "100", // Forces this canvas ABOVE the game world
+    zIndex: "100",
     ...opts.style,
   });
   
   document.body.appendChild(c);
   return c;
+}
+
+// --------------------------------------------------------------------------
+// HELPER: THROTTLED RENDER LOOP
+// --------------------------------------------------------------------------
+function startThrottledRender(viewer: SkinViewer, fps = 30) {
+  const frameMs = 1000 / fps;
+  let last = performance.now();
+
+  const loop = (t: number) => {
+    if (t - last >= frameMs) {
+      viewer.render();
+      last = t;
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
 }
 
 function now() {
@@ -63,53 +80,31 @@ async function main() {
     chunkSize: 16,
     chunkAddDistance: 2,
     chunkRemoveDistance: 3,
-    playerStart: [0, 10, 0], // Fall from sky
-    texturePath: "" // We use data URLs, so no path needed
+    playerStart: [0, 10, 0],
+    texturePath: ""
   });
-
-  // Expose for debugging
   (window as any).noa = noa;
 
   // ========================================================================
   // 2. REGISTER BLOCKS & GENERATE WORLD
   // ========================================================================
-  
-  // 2a. Generate Textures
-  const texGrass = makeTexture("#33cc33"); // Green
-  const texDirt = makeTexture("#8b5a2b");  // Brown
+  const texGrass = makeTexture("#33cc33");
+  const texDirt = makeTexture("#8b5a2b");
 
-  // 2b. Register Blocks
   const AIR = 0;
-  
-  const GRASS = noa.registry.registerBlock(1, {
-    material: "grass",
-    solid: true,
-    opaque: true,
-    texture: texGrass,
-  });
+  const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true, texture: texGrass });
+  const DIRT = noa.registry.registerBlock(2, { material: "dirt", solid: true, opaque: true, texture: texDirt });
 
-  const DIRT = noa.registry.registerBlock(2, {
-    material: "dirt",
-    solid: true,
-    opaque: true,
-    texture: texDirt,
-  });
-
-  // 2c. World Generation Logic (Flat Grass)
   const chunkSize: number = noa.world?._chunkSize ?? 16;
-  noa.world.on(
-    "worldDataNeeded",
-    (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
+  noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       const baseY = cy * chunkSize;
       for (let x = 0; x < chunkSize; x++) {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
             const worldY = baseY + y;
             let id = AIR;
-            
             if (worldY === 0) id = GRASS;
             else if (worldY < 0 && worldY >= -3) id = DIRT;
-
             dataArr.set(x, y, z, id);
           }
         }
@@ -118,13 +113,16 @@ async function main() {
     }
   );
 
+  // Common Skin URL (CORS friendly)
+  const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
+
   // ========================================================================
   // 3. PLAYER OVERLAY (Bottom-Left)
   // ========================================================================
   const playerCanvas = createOverlayCanvas({
     id: "player-view",
-    width: 320,
-    height: 320,
+    width: 160,
+    height: 160,
     style: {
       left: "12px",
       bottom: "12px",
@@ -138,36 +136,37 @@ async function main() {
 
   const playerViewer = new SkinViewer({
     canvas: playerCanvas,
-    width: 320,
-    height: 320,
+    width: 160,
+    height: 160,
   });
 
-  playerViewer.fov = 60;
-  playerViewer.zoom = 0.9;
+  // Optimize Player Viewer
+  playerViewer.fov = 50;
+  playerViewer.zoom = 0.8;
   playerViewer.autoRotate = true; 
   playerViewer.autoRotateSpeed = 0.5;
-
-  // Load Valid Skin (Using CORS-friendly CDU Heads endpoint)
-  const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
   await playerViewer.loadSkin(SKIN_URL);
   
   const walkAnim = new WalkingAnimation(playerViewer);
   walkAnim.speed = 1.0;
   playerViewer.animation = walkAnim;
 
+  // Run at low FPS (15) since it's just a UI element
+  startThrottledRender(playerViewer, 15);
+
   // ========================================================================
-  // 4. HANDS OVERLAY (Bottom-Center, First Person)
+  // 4. HANDS OVERLAY (FPS View)
   // ========================================================================
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
     width: window.innerWidth,
-    height: window.innerHeight * 0.4,
+    height: window.innerHeight * 0.28, // Reduced to 28vh
     style: {
       left: "0px",
       bottom: "0px",
       top: "auto",
       width: "100vw",
-      height: "40vh",
+      height: "28vh", // Reduced height
       background: "transparent",
     },
   });
@@ -178,68 +177,66 @@ async function main() {
     height: handsCanvas.height,
   });
 
+  // FPS Camera Setup
   handsViewer.fov = 70;
-  handsViewer.zoom = 1.15;
+  handsViewer.zoom = 1.0;
   
   await handsViewer.loadSkin(SKIN_URL);
 
-  // Access body parts via playerObject.skin property
   const po = handsViewer.playerObject;
-  
   if (po && po.skin) {
-    // Hide body parts we don't want
+    // 1. Rotate player 180 degrees so we see the "back" of the arms (FPS style)
+    po.rotation.y = Math.PI;
+
+    // 2. Hide body parts
     po.skin.head.visible = false;
     po.skin.body.visible = false;
     po.skin.leftLeg.visible = false;
     po.skin.rightLeg.visible = false;
-
-    // Ensure arms are visible
     po.skin.leftArm.visible = true;
     po.skin.rightArm.visible = true;
 
-    // Position arms slightly forward/inward for FPS view
-    po.skin.leftArm.rotation.x = -0.5;
-    po.skin.rightArm.rotation.x = -0.5;
+    // 3. Position Arms (Wider & Angled for FPS view)
+    // Left Arm
+    po.skin.leftArm.rotation.x = -Math.PI / 4; // Point forward
+    po.skin.leftArm.rotation.z = -0.3;         // Spread out to left
+    po.skin.leftArm.position.x = 2.5;          // Move wider from body center
     
-    // Slight spread
-    po.skin.leftArm.rotation.z = 0.1;
-    po.skin.rightArm.rotation.z = -0.1;
+    // Right Arm
+    po.skin.rightArm.rotation.x = -Math.PI / 4; // Point forward
+    po.skin.rightArm.rotation.z = 0.3;          // Spread out to right
+    po.skin.rightArm.position.x = -2.5;         // Move wider from body center
   }
 
-  // Adjust camera to look down at where the hands are
-  handsViewer.camera.position.set(0, 10, 40);
-  handsViewer.camera.lookAt(0, -10, 0);
+  // Camera looking slightly down at the arms
+  handsViewer.camera.position.set(0, 10, -25); // Behind the player (negative Z)
+  handsViewer.camera.lookAt(0, -5, 10);        // Look forward/down
 
-  // CRITICAL: Continuous Render Loop for Hands
-  const renderLoop = () => {
-    handsViewer.render();
-    requestAnimationFrame(renderLoop);
-  };
-  renderLoop();
+  // Run at medium FPS (30) for responsiveness without burning GPU
+  startThrottledRender(handsViewer, 30);
 
   // ========================================================================
   // 5. INTERACTION & ANIMATION
   // ========================================================================
-  
   const swingHand = () => {
-    // Access via .skin
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
 
     const start = now();
-    const duration = 150; // ms
-    const baseRot = -0.5; // The resting rotation we set earlier
+    const duration = 150; 
+    const baseRotX = -Math.PI / 4; 
 
     const animate = () => {
       const t = now() - start;
       const k = Math.min(1, t / duration);
       
-      // Swing logic
       const swing = Math.sin(k * Math.PI) * 1.5;
-      skin.rightArm.rotation.x = baseRot - swing;
+      skin.rightArm.rotation.x = baseRotX - swing; 
+      // Note: Swinging "negative" moves it "up" relative to the new rotation logic,
+      // adjust sign if it swings the wrong way.
 
       if (k < 1) requestAnimationFrame(animate);
-      else skin.rightArm.rotation.x = baseRot; // Reset
+      else skin.rightArm.rotation.x = baseRotX;
     };
     requestAnimationFrame(animate);
   };
@@ -247,7 +244,7 @@ async function main() {
   // ========================================================================
   // 6. COLYSEUS NETWORKING
   // ========================================================================
-  setHud("Connecting to server...");
+  setHud("Connecting...");
   const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
   (window as any).room = room;
@@ -255,12 +252,10 @@ async function main() {
   console.log("✅ Joined:", room.roomId, room.sessionId);
   setHud(`Connected: ${room.sessionId}`);
 
-  // Handle incoming block updates
   room.onMessage("blockUpdate", (msg) => {
     noa.setBlock(msg.id, msg.x, msg.y, msg.z);
   });
 
-  // LEFT CLICK: Break Block
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
@@ -270,7 +265,6 @@ async function main() {
     }
   });
 
-  // RIGHT CLICK: Place Block
   noa.inputs.down.on("alt-fire", () => {
     swingHand();
     if (noa.targetedBlock) {
@@ -283,9 +277,12 @@ async function main() {
   // ========================================================================
   // 7. WINDOW RESIZE HANDLING
   // ========================================================================
+  const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
+
   const resizeHands = () => {
-    const w = Math.floor(window.innerWidth * devicePixelRatio);
-    const h = Math.floor(window.innerHeight * 0.4 * devicePixelRatio); 
+    const w = Math.floor(window.innerWidth * OVERLAY_DPR);
+    const h = Math.floor(window.innerHeight * 0.28 * OVERLAY_DPR); // 28vh
+    
     handsCanvas.width = w;
     handsCanvas.height = h;
     handsViewer.setSize(w, h);
