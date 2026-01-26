@@ -1,102 +1,135 @@
 import * as ROT from "rot-js";
 import { createNoise2D } from "simplex-noise";
 
-// Define Block IDs (Must match your client registry!)
+// BLOCK REGISTRY (Must match main.ts)
 const AIR = 0;
 const GRASS = 1;
 const DIRT = 2;
-const STONE_BRICK = 3; // Foundations/Plots
-const GRAVEL = 4;      // Roads
+const STONE_BRICK = 3; // Foundations & Walls
+const GRAVEL = 4;      // Roads & Plaza
 
 export class TownGenerator {
     width: number;
     depth: number;
     noise2D: any;
+    rng: any;
 
     constructor(width: number, depth: number, seed: number) {
         this.width = width;
         this.depth = depth;
-        // Initialize noise with a seed-based logic if needed, 
-        // or just let it be random for now
-        this.noise2D = createNoise2D(() => Math.random()); 
+        // Use a seeded RNG for consistent town layout
+        ROT.RNG.setSeed(seed);
+        this.noise2D = createNoise2D(() => ROT.RNG.getUniform());
     }
 
     generate(setBlockCallback: (x: number, y: number, z: number, id: number) => void) {
-        console.log("🏗️ Generating Town Layout...");
+        console.log("🏰 constructing 'The Town of Beginning'...");
 
-        // 1. DATA STRUCTURES
-        // We need a 2D map to know where roads and houses are before we build height
-        const townMap = new Array(this.width).fill(0).map(() => new Array(this.depth).fill(0));
-        
-        // 2. GENERATE LAYOUT using ROT.js
-        // "Digger" creates rooms (plots) and corridors (roads)
-        const digger = new ROT.Map.Digger(this.width, this.depth, {
-            roomWidth: [6, 12],  // Min/Max plot width
-            roomHeight: [6, 12], // Min/Max plot depth
-            dugPercentage: 0.2,  // Density of town (0.2 = 20% town, 80% nature)
-            corridorLength: [3, 10]
-        });
+        const TOWN_RADIUS = 45;
+        const PLAZA_RADIUS = 8;
+        const WALL_HEIGHT = 4;
+        const BASE_HEIGHT = 10; // Level of the town floor
 
-        // ROT.js callback: x, y, value (0 = empty/nature, 1 = dug/town)
-        digger.create((x, z, value) => {
-            // Note: ROT.js uses 0 for wall (nature) and 1 for empty (town features)
-            // We invert this logic slightly for our map:
-            // 1 = Town Infrastructure (Road/Plot), 0 = Nature
-            if (value === 0) townMap[x][z] = 1; 
-        });
+        // Helper to check if a point is a road
+        const isRoad = (x: number, z: number) => {
+            // Main Cross Roads (width 4)
+            if (Math.abs(x) <= 2 || Math.abs(z) <= 2) return true;
+            
+            // Ring Road (at radius ~35)
+            const dist = Math.sqrt(x*x + z*z);
+            if (dist > 33 && dist < 37) return true;
 
-        // 3. IDENTIFY PLOTS vs ROADS
-        const rooms = digger.getRooms();
-        rooms.forEach(room => {
-            for (let x = room.getLeft(); x <= room.getRight(); x++) {
-                for (let z = room.getTop(); z <= room.getBottom(); z++) {
-                    townMap[x][z] = 2; // 2 = Foundation/Plot
-                }
-            }
-        });
+            return false;
+        };
 
-        // 4. BUILD THE WORLD
-        const BASE_HEIGHT = 10; // Town level
-        
-        for (let x = 0; x < this.width; x++) {
-            for (let z = 0; z < this.depth; z++) {
-                
-                let height = 0;
-                let surfaceBlock = GRASS;
-                
-                // --- LOGIC: FLATTEN TERRAIN FOR TOWN ---
-                if (townMap[x][z] === 1) {
-                    // Road
-                    height = BASE_HEIGHT;
-                    surfaceBlock = GRAVEL;
-                } 
-                else if (townMap[x][z] === 2) {
-                    // Building Plot (Foundation)
-                    height = BASE_HEIGHT + 1; // Raise foundations slightly
-                    surfaceBlock = STONE_BRICK;
-                } 
-                else {
-                    // Nature: Use Simplex Noise
-                    // Scale coordinates for smooth hills
-                    const n = this.noise2D(x / 40, z / 40); 
-                    // Map -1..1 to height range (e.g., 5 to 25)
-                    height = Math.floor(5 + (n + 1) * 10);
-                }
+        // 1. GENERATE FOUNDATIONS (Houses)
+        // We use a simple grid approach to place houses in the empty quadrants
+        const houseMap = new Set<string>();
+        for (let i = 0; i < 40; i++) {
+            // Pick a random spot inside the town
+            const hx = Math.floor((ROT.RNG.getUniform() * 2 - 1) * (TOWN_RADIUS - 5));
+            const hz = Math.floor((ROT.RNG.getUniform() * 2 - 1) * (TOWN_RADIUS - 5));
 
-                // --- FILL BLOCKS ---
-                for (let y = 0; y <= height; y++) {
-                    let id = DIRT; // Filler
-                    
-                    if (y === height) id = surfaceBlock; // Surface
-                    
-                    // Force bedrock at bottom
-                    if (y === 0) id = STONE_BRICK; 
+            // Don't build on roads or plaza
+            if (isRoad(hx, hz) || Math.sqrt(hx*hx + hz*hz) < PLAZA_RADIUS + 2) continue;
 
-                    // Set the block
-                    setBlockCallback(x - (this.width/2), y, z - (this.depth/2), id);
+            // Save a 5x5 plot
+            for (let px = hx - 2; px <= hx + 2; px++) {
+                for (let pz = hz - 2; pz <= hz + 2; pz++) {
+                    houseMap.add(`${px},${pz}`);
                 }
             }
         }
-        console.log("✅ Town Generation Complete.");
+
+        // 2. BUILD THE WORLD
+        const halfW = Math.floor(this.width / 2);
+        const halfD = Math.floor(this.depth / 2);
+
+        for (let x = -halfW; x < halfW; x++) {
+            for (let z = -halfD; z < halfD; z++) {
+                
+                const dist = Math.sqrt(x*x + z*z);
+                let height = 0;
+                let surface = GRASS;
+                let isTown = false;
+
+                // --- ZONE 1: THE TOWN (Inside Walls) ---
+                if (dist <= TOWN_RADIUS) {
+                    isTown = true;
+                    height = BASE_HEIGHT; // Flat town
+                    
+                    if (dist <= PLAZA_RADIUS) {
+                        surface = STONE_BRICK; // Central Plaza
+                    } else if (isRoad(x, z)) {
+                        surface = GRAVEL; // Roads
+                    } else if (houseMap.has(`${x},${z}`)) {
+                        surface = STONE_BRICK; // House Foundation
+                        height += 1; // Raise foundation
+                    } else {
+                        surface = GRASS; // Lawns
+                    }
+                } 
+                
+                // --- ZONE 2: THE WALLS ---
+                else if (dist > TOWN_RADIUS && dist <= TOWN_RADIUS + 2) {
+                    // Skip gates for roads
+                    if (Math.abs(x) > 3 && Math.abs(z) > 3) {
+                        height = BASE_HEIGHT + WALL_HEIGHT;
+                        surface = STONE_BRICK;
+                        isTown = true; // Use simple filling
+                    } else {
+                        // Gate opening
+                        height = BASE_HEIGHT;
+                        surface = GRAVEL;
+                        isTown = true;
+                    }
+                }
+
+                // --- ZONE 3: WILDERNESS (Outside) ---
+                else {
+                    // Simplex noise for rolling hills
+                    const n = this.noise2D(x / 60, z / 60); 
+                    height = Math.floor(BASE_HEIGHT - 2 + (n + 1) * 8);
+                }
+
+                // --- FILL BLOCKS ---
+                // Optimization: Don't fill 10 layers of dirt for every block.
+                // Just fill surface and a few layers down, then assume solid below.
+                
+                // 1. Place Surface Block
+                setBlockCallback(x, height, z, surface);
+
+                // 2. Fill Dirt Underneath (down to bedrock or a limit)
+                for (let y = height - 1; y >= Math.max(0, height - 5); y--) {
+                    // Inside town walls, use stone for stability/look, outside use dirt
+                    setBlockCallback(x, y, z, isTown ? STONE_BRICK : DIRT);
+                }
+                
+                // 3. Optional: Add Bedrock at y=0 if you want a hard bottom
+                if (height > 0) setBlockCallback(x, 0, z, STONE_BRICK);
+            }
+        }
+        
+        console.log("✅ 'Town of Beginning' Built.");
     }
 }
