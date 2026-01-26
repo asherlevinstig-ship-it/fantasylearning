@@ -120,7 +120,7 @@ export class VoxelRoom extends Room<VoxelState> {
       if (cs) cs.version = this.chunks.getVersion(key);
     }
 
-    // push block edit event to subscribed clients only
+    // push sblock edit event to subscribed clients only
     for (const [sessionId, sub] of this.subscriptions.entries()) {
       if (changedKeys.some(k => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
