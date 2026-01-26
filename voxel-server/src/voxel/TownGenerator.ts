@@ -178,6 +178,6 @@ export class TownGenerator {
             }
         }
         
-        console.log("✅ 'Town of Beginning' Generation Complete.");
+        console.log("✅ 'Town of Begsinning' Generation Complete.");
     }
 }

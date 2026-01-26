@@ -85,13 +85,14 @@ async function main() {
   // ========================================================================
   // 2. SETUP NOA ENGINE
   // ========================================================================
+  // NOTE: Increased chunk distances for much better draw distance!
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 16,
-    chunkAddDistance: 2,
-    chunkRemoveDistance: 3,
+    chunkSize: 32,           // Larger chunks = fewer mesh objects
+    chunkAddDistance: 8,     // Load chunks within 8 chunks (~256 blocks view distance)
+    chunkRemoveDistance: 10, // Unload at 10 chunks (~320 blocks)
     playerStart: [0, 15, 0], // Start safely above ground
-    texturePath: "" // Not used with color materials
+    texturePath: ""          // Not used with color materials
   });
   (window as any).noa = noa;
 
@@ -155,7 +156,7 @@ async function main() {
     opaque: true 
   });
 
-  const chunkSize: number = noa.world?._chunkSize ?? 16;
+  const chunkSize: number = noa.world?._chunkSize ?? 32;
   
   // ------------------------------------------------------------------------
   // CHUNK LOADING (FROM GENERATED MAP)
