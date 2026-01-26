@@ -6,6 +6,88 @@ import { Engine } from "noa-engine";
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { if (hudEl) hudEl.textContent = t; };
 
+function makeRuntimeAtlas(tileSize = 16) {
+  // 2 tiles wide (grass, dirt), 1 tile high
+  const canvas = document.createElement("canvas");
+  canvas.width = tileSize * 2;
+  canvas.height = tileSize;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not get 2D context for runtime atlas.");
+
+  // tile 0: grass (simple color)
+  ctx.fillStyle = "#33cc33";
+  ctx.fillRect(0, 0, tileSize, tileSize);
+
+  // tile 1: dirt (simple color)
+  ctx.fillStyle = "#8b5a2b";
+  ctx.fillRect(tileSize, 0, tileSize, tileSize);
+
+  return canvas;
+}
+
+function canvasToImage(canvas: HTMLCanvasElement): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to convert runtime atlas canvas to image."));
+    img.src = canvas.toDataURL("image/png");
+  });
+}
+
+function configureTerrainAtlas(noa: any, atlasImg: HTMLImageElement, tileSizePx: number) {
+  const mesher = noa?._terrainMesher;
+  if (!mesher) throw new Error("noa._terrainMesher missing (terrain mesher not present)");
+
+  // Different noa builds expose slightly different method names.
+  // We'll try a bunch until one works.
+  const fns = [
+    "setAtlas",
+    "setTextureAtlas",
+    "setAtlasTexture",
+    "setAtlasImage",
+    "setTextureAtlasImage",
+    "setAtlasData",
+  ];
+
+  let success = false;
+
+  for (const fn of fns) {
+    if (typeof mesher[fn] !== "function") continue;
+
+    // Try common signatures
+    try {
+      mesher[fn](atlasImg, tileSizePx);
+      console.log(`✅ terrain mesher: ${fn}(img, tileSizePx=${tileSizePx})`);
+      success = true;
+      break;
+    } catch {}
+
+    try {
+      mesher[fn](atlasImg);
+      console.log(`✅ terrain mesher: ${fn}(img)`);
+      success = true;
+      break;
+    } catch {}
+
+    try {
+      // Some builds accept the canvas itself
+      mesher[fn](atlasImg, tileSizePx, 2, 1);
+      console.log(`✅ terrain mesher: ${fn}(img, tileSizePx, tilesX, tilesY)`);
+      success = true;
+      break;
+    } catch {}
+  }
+
+  if (!success) {
+    console.warn("⚠️ Could not attach runtime atlas to terrain mesher.");
+    console.warn("Terrain mesher keys:", Object.keys(mesher));
+    console.warn("Blocks will exist but may not render until atlas hookup method matches.");
+  }
+
+  return mesher;
+}
+
 async function main() {
   setHud("Starting noa...");
 
@@ -25,29 +107,44 @@ async function main() {
   const GRASS = 1;
   const DIRT = 2;
 
-  // --- Register blocks using noa's material names ---
-  // This avoids needing BABYLON global.
-  // Many noa builds accept `material` as a string that maps to internal materials.
-  // If your build uses textures later, we’ll swap this out cleanly.
+  // --- Create a runtime atlas (NO files) ---
+  setHud("Building runtime textures...");
+  const tileSize = 16;
+  const atlasCanvas = makeRuntimeAtlas(tileSize);
+  const atlasImg = await canvasToImage(atlasCanvas);
+
+  // --- Configure mesher to use runtime atlas ---
+  const mesher = configureTerrainAtlas(noa, atlasImg, tileSize);
+
+  // --- Register blocks with texture indices ---
+  // index 0 = grass tile (left)
+  // index 1 = dirt tile (right)
   try {
     noa.registry.registerBlock({
       id: GRASS,
       solid: true,
-      material: "grass",
-      color: [0.2, 0.8, 0.2],
+      texture: 0,
+      textureIndex: 0,
+      tex: 0,
     });
 
     noa.registry.registerBlock({
       id: DIRT,
       solid: true,
-      material: "dirt",
-      color: [0.5, 0.3, 0.1],
+      texture: 1,
+      textureIndex: 1,
+      tex: 1,
     });
   } catch (e) {
     console.warn("registerBlock warning:", e);
   }
 
-  // --- Worldgen: fill chunk voxel data ---
+  // Look down so you definitely see ground
+  try {
+    if (noa.camera) noa.camera.pitch = -0.6;
+  } catch {}
+
+  // --- World generation (flat world) ---
   const chunkSize: number = noa.world?._chunkSize ?? 16;
 
   noa.world.on(
@@ -73,25 +170,16 @@ async function main() {
     }
   );
 
-  // --- Force camera to look down slightly (often needed) ---
-  try {
-    if (noa.camera) {
-      noa.camera.pitch = -0.6;
-    }
-  } catch {}
-
-  // --- After a moment, force remesh (debug helper) ---
+  // --- Sanity logs ---
   setTimeout(() => {
     const a = typeof noa.getBlock === "function" ? noa.getBlock(0, 0, 0) : "(noa.getBlock missing)";
     const b = typeof noa.world?.getBlockID === "function" ? noa.world.getBlockID(0, 0, 0) : "(world.getBlockID missing)";
     console.log("After worldgen: getBlock(0,0,0) =", a, "| world.getBlockID(0,0,0) =", b);
+    console.log("scene meshes:", noa.rendering?.scene?.meshes?.length);
+    console.log("terrainMesher keys:", Object.keys(mesher));
+  }, 900);
 
-    // Print some rendering internals so we know meshing is happening
-    console.log("rendering keys:", noa.rendering ? Object.keys(noa.rendering) : "no rendering");
-    console.log("mesher:", noa._terrainMesher ? "present" : "missing");
-  }, 750);
-
-  // --- Connect to Colyseus ---
+  // --- Colyseus connect ---
   setHud("Connecting to server...");
   const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
@@ -101,6 +189,7 @@ async function main() {
   (window as any).room = room;
 
   room.onMessage("worldInfo", (info) => console.log("📩 worldInfo", info));
+  room.onMessage("*", (type, msg) => console.log("📩 message:", type, msg));
 }
 
 main().catch((err) => {
