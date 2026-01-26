@@ -68,7 +68,7 @@ async function main() {
   // ========================================================================
   // 2. INITIALIZE GENERATOR (LAZY MODE)
   // ========================================================================
-  // We do NOT generate the whole world at once anymore.
+  // We do NOT generate the whole world at once.
   // We just initialize the blueprint so we can query it later per-chunk.
   const townGen = new TownGenerator(1000, 1000, 12345);
 
@@ -131,10 +131,9 @@ async function main() {
   const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
 
   // ========================================================================
-  // 6. CHUNK LOADING (LAZY EVALUATION)
+  // 6. CLIENT-SIDE CHUNK RENDERING (VISUALS)
   // ========================================================================
-  // This is the CRITICAL fix. We query the generator for each block
-  // only when the engine asks for a specific chunk.
+  // This handles the VISUAL generation of chunks using the shared generator.
   const chunkSize = noa.world._chunkSize;
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
@@ -272,7 +271,29 @@ async function main() {
   });
 
   // ========================================================================
-  // 10. RESIZE HANDLING
+  // 10. CHUNK SUBSCRIPTION LOOP (The missing link!)
+  // ========================================================================
+  // This tells the server where we are so it can load physics/sync data.
+  // Note: We use 16 here because the server ChunkStore expects 16-sized chunks,
+  // even if our client visual render chunks are 32.
+  const SERVER_CHUNK_SIZE = 16; 
+  const SUBSCRIPTION_RADIUS = 6; 
+
+  setInterval(() => {
+    // Get player position
+    const p = noa.entities.getPosition(noa.playerEntity);
+    
+    // Convert to Server Chunk Coordinates
+    const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
+    const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
+    const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
+
+    // Tell server to subscribe us to these chunks
+    room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
+  }, 250); // Send every 250ms
+
+  // ========================================================================
+  // 11. RESIZE HANDLING
   // ========================================================================
   const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
   const resizeHands = () => {
