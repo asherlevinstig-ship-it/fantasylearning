@@ -25,29 +25,24 @@ export class VoxelRoom extends Room<VoxelState> {
   // which chunk-keys each client is currently subscribed to
   private subscriptions = new Map<string, Set<string>>();
 
+  // The procedural generator
+  private townGen: TownGenerator;
+
   onCreate() {
     // Tune patch rate; voxel games often benefit from a bit lower for bandwidth stability
     this.setPatchRate(20); // 20 patches/s
 
     // ==================================================================
-    // 1. TOWN GENERATION (Server-Side)
+    // 1. INITIALIZE GENERATOR (Lazy Mode)
     // ==================================================================
-    console.log("🏙️ Starting Town Generation (Server Physics)...");
+    console.log("🏙️ Initializing Town Generator...");
     
-    // SCALE UP: Generate 1000x1000 area (radius 500) to match client
-    const townGen = new TownGenerator(1000, 1000, 12345);
+    // We do NOT generate the whole world loop here anymore. 
+    // We instantiate the generator and use it on-demand in handleSubscribe.
+    this.townGen = new TownGenerator(1000, 1000, 12345);
 
-    // Generate the town and store it directly into the server's ChunkStore
-    townGen.generate((x, y, z, id) => {
-        // This populates the server's memory with roads, plots, and terrain
-        // so that collision detection works correctly.
-        this.chunks.setBlock(x, y, z, id);
-    });
-
-    console.log("✅ Server Town Generation Complete & Loaded into Memory.");
-    // ==================================================================
-
-
+    console.log("✅ Town Generator Ready (Chunks will be generated on-demand).");
+    
     // ==================================================================
     // 2. MESSAGE HANDLERS
     // ==================================================================
@@ -61,12 +56,39 @@ export class VoxelRoom extends Room<VoxelState> {
     this.subscriptions.set(client.sessionId, new Set());
 
     // Send seed / world settings once
+    // Ensure chunkSize matches what we use in generation logic (16)
     client.send("worldInfo", { seed: 12345, chunkSize: 16, height: 256 });
   }
 
   onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
     this.subscriptions.delete(client.sessionId);
+  }
+
+  // ==================================================================
+  // HELPER: SERVER-SIDE CHUNK GENERATION
+  // ==================================================================
+  private generateChunk(cx: number, cy: number, cz: number) {
+      const chunkSize = 16; // Must match ChunkStore/Client settings
+      
+      for (let lx = 0; lx < chunkSize; lx++) {
+          for (let ly = 0; ly < chunkSize; ly++) {
+              for (let lz = 0; lz < chunkSize; lz++) {
+                  const wx = cx * chunkSize + lx;
+                  const wy = cy * chunkSize + ly;
+                  const wz = cz * chunkSize + lz;
+
+                  // Query the generator for this specific block
+                  const id = this.townGen.getBlockID(wx, wy, wz);
+                  
+                  // If it's not air, write it to the server's chunk store
+                  // This ensures server physics knows about the ground/walls
+                  if (id !== 0) {
+                      this.chunks.setBlock(wx, wy, wz, id);
+                  }
+              }
+          }
+      }
   }
 
   // ==================================================================
@@ -107,7 +129,8 @@ export class VoxelRoom extends Room<VoxelState> {
 
           // ensure chunk exists server-side
           if (!this.chunks.has(key)) {
-            this.chunks.create(key); // generate or load
+            this.chunks.create(key); // init empty chunk
+            this.generateChunk(x, y, z); // POPULATE IT immediately
           }
 
           // ensure chunk metadata exists in synced state
