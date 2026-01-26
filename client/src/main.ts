@@ -1,6 +1,6 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
-import { SkinViewer, WalkingAnimation } from "minecraft-skin-viewer";
+import { SkinViewer, WalkingAnimation } from "skinview3d";
 
 // --------------------------------------------------------------------------
 // HELPER: HUD
