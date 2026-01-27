@@ -59,7 +59,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // HELPER: SERVER-SIDE CHUNK GENERATION (Internal Memory Only)
+  // HELPER: SERVER-SIDE CHUNK dsENERATION (Internal Memory Only)
   // ==================================================================
   private generateChunk(cx: number, cy: number, cz: number) {
       const chunkSize = 16; 

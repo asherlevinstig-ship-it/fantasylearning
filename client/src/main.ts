@@ -12,14 +12,13 @@ const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (lines: string[]) => { 
     if (hudEl) {
         hudEl.innerHTML = lines.join("<br>");
-        // Ensure visibility styles are set
         Object.assign(hudEl.style, {
             whiteSpace: "pre-wrap",
             backgroundColor: "rgba(0, 0, 0, 0.5)",
             padding: "10px",
             color: "white",
             fontFamily: "monospace",
-            display: "block", // Ensure it is visible
+            display: hudEl.style.display === "none" ? "none" : "block", // Preserve hidden state
             borderRadius: "8px"
         });
     }
@@ -91,9 +90,11 @@ function showBiomeNotification(title: string, subtext: string = "") {
 
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
 
+  // Animate In
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
 
+  // Animate Out after 2.5s
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -178,7 +179,7 @@ async function main() {
     chunkSize: 16,           
     chunkAddDistance: 32,    // 512 Blocks View Distance
     chunkRemoveDistance: 40, 
-    playerStart: [0, 50, 0], 
+    playerStart: [0, 50, 0], // Start high on the beacon
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -194,17 +195,19 @@ async function main() {
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
 
-  // TOGGLE HUD BINDING (F3)
+  // --- UPDATED TOGGLE HUD BINDINGS (Try Z or P if F3 fails) ---
   noa.inputs.bind('debug', 'F3'); 
+  noa.inputs.bind('debug', 'KeyZ'); 
+  noa.inputs.bind('debug', 'KeyP'); 
 
   let showDebug = true; // State flag
 
   noa.inputs.down.on('debug', () => {
       showDebug = !showDebug; // Toggle
-      if (!showDebug && hudEl) {
-          hudEl.style.display = "none"; // Hide immediately
-      } else if (showDebug && hudEl) {
-          hudEl.style.display = "block"; // Show immediately
+      console.log(`🔧 Debug HUD toggled: ${showDebug}`);
+      
+      if (hudEl) {
+          hudEl.style.display = showDebug ? "block" : "none";
       }
   });
 
@@ -273,7 +276,6 @@ async function main() {
   console.log(`📐 Chunk size: ${chunkSize}`);
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
-      // Chunk Index -> World Coordinate conversion
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
