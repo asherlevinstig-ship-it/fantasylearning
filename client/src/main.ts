@@ -60,7 +60,7 @@ function now() {
 }
 
 async function main() {
-  console.log("🚀 Starting Client...");
+  console.log("🚀 Starting Client (Debug Mode)...");
   setHud("Initializing Town Generator...");
 
   // ========================================================================
@@ -82,12 +82,13 @@ async function main() {
   // ========================================================================
   // 3. SETUP NOA ENGINE
   // ========================================================================
+  // CHANGED: Optimizing for 16-size chunks and better view distance debugging
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 32,           
-    chunkAddDistance: 16,    // 16 * 32 = 512 Blocks View Distance (Enough to see walls!)
-    chunkRemoveDistance: 20, 
-    playerStart: [0, 50, 0], // Start high on the beacon
+    chunkSize: 16,           // CHANGED to 16
+    chunkAddDistance: 32,    // 32*16 = 512 blocks view distance
+    chunkRemoveDistance: 40, // Keep chunks loaded longer
+    playerStart: [0, 35, 0], // Spawn closer to ground/beacon height
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -103,8 +104,9 @@ async function main() {
   noa.inputs.bind('wall', 'KeyH'); // H = Wall
 
   // ========================================================================
-  // 4. WORLD BORDER LOGIC
+  // 4. WORLD BORDER LOGIC (DISABLED FOR DEBUGGING)
   // ========================================================================
+  /*
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
@@ -120,6 +122,7 @@ async function main() {
       setHud("🚫 World Border Reached");
     }
   });
+  */
 
   // ========================================================================
   // 5. REGISTER MATERIALS & BLOCKS
@@ -144,7 +147,7 @@ async function main() {
   console.log(`📐 Chunk size: ${chunkSize}`);
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
-      // NOTE: cx, cy, cz are Chunk Indices (0, 1, 2...).
+      // cx, cy, cz are Chunk Indices (0, 1, 2...).
       // We MUST multiply by chunkSize to get World Coordinates.
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
@@ -161,7 +164,7 @@ async function main() {
       for (let x = 0; x < chunkSize; x++) {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
-            // Local (0..31) + ChunkCorner (0, 32, 64) = GlobalPos
+            // Local (0..15) + ChunkCorner = GlobalPos
             const globalX = chunkX + x;
             const globalY = chunkY + y;
             const globalZ = chunkZ + z;
@@ -244,16 +247,16 @@ async function main() {
 
   // --- DEBUG TELEPORTS ---
   noa.inputs.down.on("home", () => {
-      console.log("✈️ Teleport: BEACON (0, 50, 0)");
-      noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
+      console.log("✈️ Teleport: BEACON (0, 35, 0)");
+      noa.entities.setPosition(noa.playerEntity, [0, 35, 0]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   noa.inputs.down.on("wall", () => {
-      console.log("✈️ Teleport: CITY WALL (400, 50, 0)");
-      // Teleport right on top of the wall so you can see it
-      noa.entities.setPosition(noa.playerEntity, [400, 50, 0]);
-      noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
+      // CHANGED: Teleport to Z=40 to avoid the gate opening at Z=0
+      console.log("✈️ Teleport: CITY WALL (400, 35, 40)");
+      noa.entities.setPosition(noa.playerEntity, [400, 35, 40]);
+      noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0, 0, 0];
   });
 
   // ========================================================================
@@ -289,8 +292,9 @@ async function main() {
   });
 
   // ========================================================================
-  // 10. CHUNK SUBSCRIPTION LOOP
+  // 10. CHUNK SUBSCRIPTION LOOP (DISABLED FOR DEBUGGING)
   // ========================================================================
+  /*
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
 
@@ -304,6 +308,7 @@ async function main() {
 
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
   }, 250);
+  */
 
   // ========================================================================
   // 11. RESIZE HANDLING

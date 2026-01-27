@@ -1,48 +1,64 @@
 import * as ROT from "rot-js";
 import { createNoise2D } from "simplex-noise";
 
-// BLOCK REGISTRY
+// BLOCK REGISTRY (Must match main.ts IDs)
 const AIR = 0;
 const GRASS = 1;
 const DIRT = 2;
-const STONE_BRICK = 3;
-const GRAVEL = 4;
-const BEACON_RED = 5; // <--- NEW DEBUG BLOCK
+const STONE_BRICK = 3; // Foundations, Walls, Plaza
+const GRAVEL = 4;      // Roads
+const BEACON_RED = 5;  // Debug Beacon
 
 export class TownGenerator {
     width: number;
     depth: number;
     noise2D: any;
+
+    // Optimization: Store only 2D layout data
     private houseMap = new Set<string>();
     
-    // Configuration
-    private townRadius = 400;     
-    private wallThickness = 5;
-    private wallHeight = 15;      // Taller walls
-    private baseHeight = 10;
-    private mainRoadWidth = 6;
+    // ==================================================================
+    // CONFIGURATION: MASSIVE TOWN (DEBUG MODE)
+    // ==================================================================
+    private townRadius = 400;     // Radius 400 = 800 blocks wide town!
+    private wallThickness = 12;   // THICKER walls (easier to see/land on)
+    private wallHeight = 25;      // TALLER walls (hard to miss)
+    private baseHeight = 10;      // Universal flat ground level
+    private mainRoadWidth = 6;    // Wider main roads
 
     constructor(width: number, depth: number, seed: number) {
         this.width = width;
         this.depth = depth;
+
         ROT.RNG.setSeed(seed);
         this.noise2D = createNoise2D(() => ROT.RNG.getUniform());
+
         this.initLayout();
     }
 
+    // --------------------------------------------------------------------------
+    // 1. LAYOUT PRE-CALCULATION
+    // --------------------------------------------------------------------------
     private initLayout() {
-        console.log("📐 Layout Init...");
+        console.log("📐 Calculating Massive Town Layout...");
+        
+        // Scale up attempts to fill the huge area
         const houseAttempts = 3000; 
         const PLAZA_RADIUS = 30;
 
         for (let i = 0; i < houseAttempts; i++) {
+            // Pick random spot inside town
             const r = (ROT.RNG.getUniform() * (this.townRadius - 20)); 
             const theta = ROT.RNG.getUniform() * 2 * Math.PI;
+            
             const hx = Math.floor(r * Math.cos(theta));
             const hz = Math.floor(r * Math.sin(theta));
 
-            if (this.isRoad(hx, hz) || Math.sqrt(hx*hx + hz*hz) < PLAZA_RADIUS + 5) continue;
+            // CHECKS:
+            if (this.isRoad(hx, hz)) continue;
+            if (Math.sqrt(hx*hx + hz*hz) < PLAZA_RADIUS + 5) continue;
 
+            // Check if 9x9 plot is safe (bigger houses for bigger town)
             let safe = true;
             for (let px = hx - 4; px <= hx + 4; px++) {
                 for (let pz = hz - 4; pz <= hz + 4; pz++) {
@@ -51,6 +67,7 @@ export class TownGenerator {
             }
 
             if (safe) {
+                // Mark foundation (7x7 house on 9x9 plot)
                 for (let px = hx - 3; px <= hx + 3; px++) {
                     for (let pz = hz - 3; pz <= hz + 3; pz++) {
                         this.houseMap.add(`${px},${pz}`);
@@ -60,21 +77,33 @@ export class TownGenerator {
         }
     }
 
+    // Helper: Defines where roads are located
     private isRoad(x: number, z: number): boolean {
+        // 1. Main Cross Roads (North/South/East/West)
         if (Math.abs(x) <= this.mainRoadWidth || Math.abs(z) <= this.mainRoadWidth) return true;
+        
         const dist = Math.sqrt(x*x + z*z);
+
+        // 2. Inner Ring Road (Radius ~150)
         if (dist > 145 && dist < 160) return true;
+
+        // 3. Outer Ring Road (Radius ~300)
         if (dist > 295 && dist < 310) return true;
+
         return false;
     }
 
+    // --------------------------------------------------------------------------
+    // 2. LAZY BLOCK GENERATION
+    // --------------------------------------------------------------------------
     public getBlockID(x: number, y: number, z: number): number {
-        const dist = Math.sqrt(x*x + z*z);
         
-        // --- 1. DEBUG BEACON (Center of World) ---
-        // A massive red pillar at 0,0 to prove generation works
+        const dist = Math.sqrt(x*x + z*z);
+
+        // --- 0. DEBUG BEACON (Center of World) ---
+        // Massive Red Tower at 0,0
         if (Math.abs(x) < 3 && Math.abs(z) < 3) {
-            if (y <= 50) return BEACON_RED; // 50 blocks high!
+            if (y <= 60) return BEACON_RED; // Very tall marker
             return AIR;
         }
 
@@ -82,43 +111,63 @@ export class TownGenerator {
         let surface = GRASS;
         let isWall = false;
 
-        // --- ZONE 1: TOWN ---
+        // --- ZONE 1: INSIDE THE TOWN (FLAT) ---
         if (dist <= this.townRadius) {
             height = this.baseHeight; 
             
             if (dist <= 30) {
-                surface = STONE_BRICK; 
+                surface = STONE_BRICK; // Huge Plaza
             } else if (this.isRoad(x, z)) {
                 surface = GRAVEL; 
             } else if (this.houseMap.has(`${x},${z}`)) {
-                surface = STONE_BRICK; 
+                surface = STONE_BRICK; // Foundations
             } else {
-                surface = GRASS; 
+                surface = GRASS; // Lawns
             }
         }
-        // --- ZONE 2: WALLS ---
+        
+        // --- ZONE 2: MASSIVE CITY WALLS (DEBUG THICKNESS) ---
+        // Radius 400 to 412 (12 blocks thick!)
         else if (dist <= this.townRadius + this.wallThickness) {
             isWall = true;
-            if (Math.abs(x) <= this.mainRoadWidth + 2 || Math.abs(z) <= this.mainRoadWidth + 2) {
-                height = this.baseHeight; 
+            
+            // Massive Gates (Main Roads only)
+            // If on X axis or Z axis (+- width)
+            if (Math.abs(x) <= this.mainRoadWidth + 4 || Math.abs(z) <= this.mainRoadWidth + 4) {
+                height = this.baseHeight; // Gate floor
                 surface = GRAVEL;
             } else {
+                // Solid Wall (Very Tall)
                 height = this.baseHeight + this.wallHeight;
                 surface = STONE_BRICK;
             }
         }
+
         // --- ZONE 3: WILDERNESS ---
         else {
-            const n = this.noise2D(x / 150, z / 150); 
+            const n = this.noise2D(x / 150, z / 150); // Larger rolling hills
             height = Math.floor((this.baseHeight - 2) + (n + 1) * 12);
         }
 
+        // ----------------------------------------
+        // RETURN BLOCK ID
+        // ----------------------------------------
+        // 1. Above Ground -> Air
         if (y > height) return AIR;
+
+        // 2. The Surface Block
         if (y === height) return surface;
+
+        // 3. Bedrock (Bottom of world)
         if (y === 0) return STONE_BRICK;
 
-        if (isWall) return STONE_BRICK;
-        if (height - y < 5) return DIRT;
-        return STONE_BRICK; 
+        // 4. Fill Logic (Underground)
+        if (isWall) {
+            return STONE_BRICK; // Walls are solid stone
+        } else {
+            // Normal ground
+            if (height - y < 5) return DIRT;
+            return STONE_BRICK; 
+        }
     }
 }
