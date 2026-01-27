@@ -9,6 +9,7 @@ import { TownGenerator } from "./TownGenerator";
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { 
     if (hudEl) hudEl.textContent = t; 
+    console.log(`[HUD] ${t}`);
 };
 
 // --------------------------------------------------------------------------
@@ -59,39 +60,45 @@ function now() {
 }
 
 async function main() {
-  console.log("🚀 Starting Client...");
+  console.log("🚀 Starting Client with DEBUG MODE...");
   setHud("Initializing Town Generator...");
 
   // ========================================================================
   // 1. CONFIGURATION
   // ========================================================================
-  const WORLD_RADIUS = 2000; // 4000x4000 World
+  const WORLD_RADIUS = 2000;
   const BORDER_BUFFER = 64;
 
   // ========================================================================
   // 2. INITIALIZE GENERATOR
   // ========================================================================
-  // Initialize the massive blueprint
+  // Initialize the blueprint for the 4000x4000 world
+  console.time("GenInit");
   const townGen = new TownGenerator(4000, 4000, 12345);
+  console.timeEnd("GenInit");
 
   setHud("Starting Engine...");
 
   // ========================================================================
-  // 3. SETUP NOA ENGINE
+  // 3. SETUP NOA ENGINE (Debug View)
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
     chunkSize: 32,           
-    chunkAddDistance: 16,    //  ~512 blocks view radius (Fixes void edges)
-    chunkRemoveDistance: 20, // Keep chunks loaded longer
-    playerStart: [0, 15, 0], 
+    chunkAddDistance: 12,    // ~384 blocks radius
+    chunkRemoveDistance: 14, 
+    playerStart: [0, 50, 0], // SPAWN HIGH to see the beacon/layout
     texturePath: ""          
   });
   (window as any).noa = noa;
 
-  // Input Bindings
+  // ------------------------------------------------------------------------
+  // INPUT BINDINGS
+  // ------------------------------------------------------------------------
+  // F = Break, G = Teleport Home (Debug)
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f');
+  noa.inputs.bind('teleport', 'KeyG'); 
 
   // ========================================================================
   // 4. WORLD BORDER LOGIC
@@ -115,16 +122,22 @@ async function main() {
   // ========================================================================
   // 5. REGISTER MATERIALS & BLOCKS
   // ========================================================================
+  console.log("🎨 Registering Materials (Including Red Beacon)...");
+
+  // A. Materials
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
+  noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] }); // BRIGHT RED
 
+  // B. Blocks (IDs must match TownGenerator)
   const AIR = 0;
   const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
   const DIRT = noa.registry.registerBlock(2, { material: "dirt", solid: true, opaque: true });
   const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
   const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
+  const BEACON = noa.registry.registerBlock(5, { material: "beacon", solid: true, opaque: true }); // ID 5
 
   // ========================================================================
   // 6. CLIENT-SIDE CHUNK RENDERING
@@ -133,27 +146,29 @@ async function main() {
   console.log(`📐 Chunk size: ${chunkSize}`);
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
-      // NOTE: cx, cy, cz are Chunk INDICES (0, 1, 2...), not world coords.
-      // We must multiply by chunkSize to get world positions.
+      // NOTE: cx, cy, cz are Chunk INDEXES (e.g. 0, 1, -1).
+      // We must multiply by chunkSize to get World Coordinates.
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Skip chunks way outside the world
+      // Skip chunks way outside the world limit
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
         return;
       }
 
-      // Fill the chunk by querying the generator
+      // Fill the chunk
       for (let x = 0; x < chunkSize; x++) {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
+            // Calculate exact world position for this voxel
             const globalX = chunkX + x;
             const globalY = chunkY + y;
             const globalZ = chunkZ + z;
 
+            // Ask the generator "What is here?"
             const id = townGen.getBlockID(globalX, globalY, globalZ);
             dataArr.set(x, y, z, id);
           }
@@ -203,7 +218,7 @@ async function main() {
   startThrottledRender(handsViewer, 30);
 
   // ========================================================================
-  // 8. INTERACTION
+  // 8. INTERACTION & DEBUG ACTIONS
   // ========================================================================
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
@@ -230,6 +245,16 @@ async function main() {
     requestAnimationFrame(animate);
   };
 
+  // --- DEBUG: TELEPORT KEY (G) ---
+  noa.inputs.down.on("teleport", () => {
+      console.log("✈️ DEBUG: Teleporting to Origin [0, 50, 0]...");
+      noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
+      
+      // Stop falling momentum
+      const body = noa.entities.getPhysicsBody(noa.playerEntity);
+      if (body) body.velocity = [0, 0, 0];
+  });
+
   // ========================================================================
   // 9. COLYSEUS NETWORKING
   // ========================================================================
@@ -241,17 +266,17 @@ async function main() {
   console.log(`🟢 Connected: ${room.sessionId}`);
   setHud(`Connected: ${room.sessionId}`);
 
-  // FIX: Register listener for worldInfo to prevent console warnings
+  // FIX: Handle worldInfo to silence warning
   room.onMessage("worldInfo", (msg) => {
-      console.log("🌍 World Settings Received:", msg);
+      console.log("🌍 World Info:", msg);
   });
 
-  // Handle Block Updates from other players
+  // Handle Block Updates
   room.onMessage("blockUpdate", (msg) => {
     noa.setBlock(msg.id, msg.x, msg.y, msg.z);
   });
 
-  // LEFT CLICK / F: Break Block
+  // LEFT CLICK: Break Block
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
@@ -274,13 +299,13 @@ async function main() {
   // ========================================================================
   // 10. CHUNK SUBSCRIPTION LOOP
   // ========================================================================
-  // The server uses 16-sized chunks for physics logic.
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
 
   setInterval(() => {
     const p = noa.entities.getPosition(noa.playerEntity);
     
+    // Server uses 16-size chunks logic
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
