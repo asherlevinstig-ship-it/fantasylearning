@@ -1,7 +1,6 @@
 import { Room, Client } from "@colyseus/core";
 import { VoxelState } from "./state/VoxelState";
 import { PlayerState } from "./state/PlayerState";
-import { ChunkState } from "./state/ChunkState";
 
 import { keyFromChunk } from "../voxel/chunkKey";
 import { ChunkStore } from "../voxel/chunkStore";
@@ -19,7 +18,7 @@ export class VoxelRoom extends Room<VoxelState> {
   maxClients = 32;
   state = new VoxelState();
 
-  // server-side chunk data store (authoritative)
+  // server-side chunk data store (authoritative, but NOT synced via Schema)
   private chunks = new ChunkStore();
 
   // which chunk-keys each client is currently subscribed to
@@ -32,7 +31,7 @@ export class VoxelRoom extends Room<VoxelState> {
     this.setPatchRate(20); 
 
     // ==================================================================
-    // 1. INITIALIZE GENERATOR (Lazy Mode)
+    // 1. INITIALIZE GENERATOR
     // ==================================================================
     console.log("🏙️ Initializing Town Generator...");
     this.townGen = new TownGenerator(4000, 4000, 12345); // Matching Client Size
@@ -60,7 +59,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // HELPER: SERVER-SIDE CHUNK GENERATION
+  // HELPER: SERVER-SIDE CHUNK GENERATION (Internal Memory Only)
   // ==================================================================
   private generateChunk(cx: number, cy: number, cz: number) {
       const chunkSize = 16; 
@@ -97,7 +96,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // LOGIC: CHUNK SUBSCRIPTION (PHYSICS ONLY)
+  // LOGIC: CHUNK SUBSCRIPTION (Physics Only)
   // ==================================================================
   private handleSubscribe(client: Client, msg: SubscribeMsg) {
     const set = this.subscriptions.get(client.sessionId);
@@ -120,20 +119,11 @@ export class VoxelRoom extends Room<VoxelState> {
           const key = keyFromChunk(x, y, z);
           wanted.add(key);
 
-          // A. Ensure chunk exists in Server Memory (For Physics)
+          // Ensure chunk exists in Server Memory (For Physics/Validation)
+          // We do NOT add this to this.state anymore to prevent buffer overflow.
           if (!this.chunks.has(key)) {
             this.chunks.create(key); 
             this.generateChunk(x, y, z); 
-          }
-
-          // B. Sync Metadata via Schema
-          // We still sync metadata so we know who is where, 
-          // but we DO NOT send the raw block data ("chunkData").
-          if (!this.state.chunks.has(key)) {
-            const cs = new ChunkState();
-            cs.key = key;
-            cs.version = this.chunks.getVersion(key);
-            this.state.chunks.set(key, cs);
           }
         }
       }
@@ -148,18 +138,13 @@ export class VoxelRoom extends Room<VoxelState> {
   private handleSetBlock(client: Client, msg: SetBlockMsg) {
     if (![msg.x, msg.y, msg.z, msg.id].every(isFiniteNumber)) return;
 
+    // Update Internal Memory
     const ok = this.chunks.setBlock(msg.x, msg.y, msg.z, msg.id);
     if (!ok) return;
 
     const changedKeys = this.chunks.getTouchedChunkKeys(msg.x, msg.y, msg.z);
 
-    // Update version
-    for (const key of changedKeys) {
-      const cs = this.state.chunks.get(key);
-      if (cs) cs.version = this.chunks.getVersion(key);
-    }
-
-    // Broadcast change to relevant players
+    // Broadcast change to relevant players via MESSAGE (not Schema)
     for (const [sessionId, sub] of this.subscriptions.entries()) {
       if (changedKeys.some(k => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
