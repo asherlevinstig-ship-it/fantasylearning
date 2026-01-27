@@ -4,13 +4,49 @@ import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 
 // --------------------------------------------------------------------------
-// HELPER: HUD
+// HELPER: HUD (Top Left Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { 
     if (hudEl) hudEl.textContent = t; 
-    console.log(`[HUD] ${t}`);
 };
+
+// --------------------------------------------------------------------------
+// HELPER: BIOME NOTIFICATION UI (Minecraft Style)
+// --------------------------------------------------------------------------
+let biomeEl: HTMLDivElement;
+
+function createBiomeUI() {
+    biomeEl = document.createElement("div");
+    Object.assign(biomeEl.style, {
+        position: "fixed",
+        top: "20%",
+        left: "0",
+        width: "100%",
+        textAlign: "center",
+        fontSize: "48px",
+        fontFamily: "Impact, sans-serif",
+        color: "#FFD700", // Gold color
+        textShadow: "4px 4px 0px #000",
+        pointerEvents: "none",
+        opacity: "0",
+        transition: "opacity 1s ease-in-out",
+        zIndex: "200"
+    });
+    document.body.appendChild(biomeEl);
+}
+
+function showBiomeNotification(text: string, subtext: string = "") {
+    if (!biomeEl) return;
+    
+    biomeEl.innerHTML = `${text}<br><span style="font-size: 24px; color: #FFF;">${subtext}</span>`;
+    biomeEl.style.opacity = "1";
+
+    // Fade out after 3 seconds
+    setTimeout(() => {
+        biomeEl.style.opacity = "0";
+    }, 3000);
+}
 
 // --------------------------------------------------------------------------
 // HELPER: OVERLAY CANVAS
@@ -60,20 +96,21 @@ function now() {
 }
 
 async function main() {
-  console.log("🚀 Starting Client (Debug Mode)...");
+  console.log("🚀 Starting Client...");
   setHud("Initializing Town Generator...");
+  createBiomeUI(); // Initialize the UI
 
   // ========================================================================
   // 1. CONFIGURATION
   // ========================================================================
-  const WORLD_RADIUS = 2000;
+  const WORLD_RADIUS = 2000; // Total World Limit
+  const TOWN_RADIUS = 800;   // The City Walls are here
   const BORDER_BUFFER = 64;
 
   // ========================================================================
   // 2. INITIALIZE GENERATOR
   // ========================================================================
   console.time("GenInit");
-  // 4000x4000 world. Walls are at x=400.
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
@@ -82,13 +119,12 @@ async function main() {
   // ========================================================================
   // 3. SETUP NOA ENGINE
   // ========================================================================
-  // CHANGED: Optimizing for 16-size chunks and better view distance debugging
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 16,           // CHANGED to 16
-    chunkAddDistance: 32,    // 32*16 = 512 blocks view distance
-    chunkRemoveDistance: 40, // Keep chunks loaded longer
-    playerStart: [0, 35, 0], // Spawn closer to ground/beacon height
+    chunkSize: 32,           
+    chunkAddDistance: 16,    
+    chunkRemoveDistance: 20, 
+    playerStart: [0, 50, 0], 
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -100,13 +136,12 @@ async function main() {
   noa.inputs.bind('fire', 'f');
   
   // DEBUG TELEPORTS
-  noa.inputs.bind('home', 'KeyG'); // G = Center
-  noa.inputs.bind('wall', 'KeyH'); // H = Wall
+  noa.inputs.bind('home', 'KeyG'); 
+  noa.inputs.bind('wall', 'KeyH'); 
 
   // ========================================================================
-  // 4. WORLD BORDER LOGIC (DISABLED FOR DEBUGGING)
+  // 4. WORLD BORDER LOGIC
   // ========================================================================
-  /*
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
@@ -122,7 +157,6 @@ async function main() {
       setHud("🚫 World Border Reached");
     }
   });
-  */
 
   // ========================================================================
   // 5. REGISTER MATERIALS & BLOCKS
@@ -131,7 +165,7 @@ async function main() {
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
-  noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] }); // Red
+  noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] }); 
 
   const AIR = 0;
   const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
@@ -147,24 +181,21 @@ async function main() {
   console.log(`📐 Chunk size: ${chunkSize}`);
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
-      // cx, cy, cz are Chunk Indices (0, 1, 2...).
-      // We MUST multiply by chunkSize to get World Coordinates.
+      // Convert Index -> World Coord
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Skip chunks way outside the world
+      // Optimization: Skip chunks outside world
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
         return;
       }
 
-      // Fill the chunk by querying the generator
       for (let x = 0; x < chunkSize; x++) {
         for (let z = 0; z < chunkSize; z++) {
           for (let y = 0; y < chunkSize; y++) {
-            // Local (0..15) + ChunkCorner = GlobalPos
             const globalX = chunkX + x;
             const globalY = chunkY + y;
             const globalZ = chunkZ + z;
@@ -247,16 +278,15 @@ async function main() {
 
   // --- DEBUG TELEPORTS ---
   noa.inputs.down.on("home", () => {
-      console.log("✈️ Teleport: BEACON (0, 35, 0)");
-      noa.entities.setPosition(noa.playerEntity, [0, 35, 0]);
+      console.log("✈️ Teleport: BEACON");
+      noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   noa.inputs.down.on("wall", () => {
-      // CHANGED: Teleport to Z=40 to avoid the gate opening at Z=0
-      console.log("✈️ Teleport: CITY WALL (400, 35, 40)");
-      noa.entities.setPosition(noa.playerEntity, [400, 35, 40]);
-      noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0, 0, 0];
+      console.log("✈️ Teleport: CITY WALL (800, 50, 40)");
+      noa.entities.setPosition(noa.playerEntity, [800, 50, 40]);
+      noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   // ========================================================================
@@ -292,23 +322,47 @@ async function main() {
   });
 
   // ========================================================================
-  // 10. CHUNK SUBSCRIPTION LOOP (DISABLED FOR DEBUGGING)
+  // 10. CHUNK SUBSCRIPTION & BIOME CHECKER
   // ========================================================================
-  /*
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
+  
+  let currentZone = "Unknown";
 
   setInterval(() => {
+    // 1. Get Position
     const p = noa.entities.getPosition(noa.playerEntity);
     
-    // Divide by 16 because server uses 16-size chunks logic
+    // 2. Send Subscription
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
-
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
+
+    // 3. Biome/Zone Logic
+    const dist = Math.sqrt(p[0]*p[0] + p[2]*p[2]);
+    let newZone = "";
+
+    if (dist <= TOWN_RADIUS) {
+        newZone = "Town of Beginnings";
+    } else {
+        newZone = "The Wilderness";
+    }
+
+    // 4. Trigger Notification if Zone Changed
+    if (newZone !== currentZone) {
+        console.log(`🗺️ Zone Change: ${currentZone} -> ${newZone}`);
+        
+        if (newZone === "Town of Beginnings") {
+            showBiomeNotification(newZone, "Safe Zone");
+        } else {
+            showBiomeNotification(newZone, "PvP Enabled");
+        }
+        
+        currentZone = newZone;
+    }
+
   }, 250);
-  */
 
   // ========================================================================
   // 11. RESIZE HANDLING
