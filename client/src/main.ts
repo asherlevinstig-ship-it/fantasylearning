@@ -4,7 +4,7 @@ import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 
 // --------------------------------------------------------------------------
-// HELPER: HUD
+// HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { 
@@ -145,13 +145,12 @@ function now() {
 async function main() {
   console.log("🚀 Starting Client with Robust Biome UI...");
   setHud("Initializing Town Generator...");
-  createBiomeUI(); // Initialize the new UI
+  createBiomeUI(); // Initialize the UI overlay
 
   // ========================================================================
   // 1. CONFIGURATION
   // ========================================================================
-  const WORLD_RADIUS = 2000;
-  const TOWN_RADIUS = 800;   // The City Walls are here
+  const WORLD_RADIUS = 2000; // Total World Limit
   const BORDER_BUFFER = 64;
 
   // ========================================================================
@@ -169,9 +168,9 @@ async function main() {
   const noa: any = new Engine({
     debug: true,
     chunkSize: 16,           // Matched to Server Logic
-    chunkAddDistance: 32,    // 512 Blocks View Distance
+    chunkAddDistance: 32,    // 32 * 16 = 512 Blocks View Distance
     chunkRemoveDistance: 40, 
-    playerStart: [0, 35, 0], // Start high
+    playerStart: [0, 50, 0], // Start high on the beacon
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -185,11 +184,11 @@ async function main() {
   // DEBUG TELEPORTS
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
+  noa.inputs.bind('wild', 'KeyJ');
 
   // ========================================================================
-  // 4. WORLD BORDER LOGIC (Disabled for Debugging)
+  // 4. WORLD BORDER LOGIC
   // ========================================================================
-  /*
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
@@ -205,7 +204,6 @@ async function main() {
       setHud("🚫 World Border Reached");
     }
   });
-  */
 
   // ========================================================================
   // 5. REGISTER MATERIALS & BLOCKS
@@ -235,7 +233,7 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Skip chunks outside world
+      // Optimization: Skip chunks outside world
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
@@ -328,14 +326,19 @@ async function main() {
   // --- DEBUG TELEPORTS ---
   noa.inputs.down.on("home", () => {
       console.log("✈️ Teleport: BEACON");
-      noa.entities.setPosition(noa.playerEntity, [0, 35, 0]);
+      noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   noa.inputs.down.on("wall", () => {
-      console.log("✈️ Teleport: CITY WALL (400, 35, 40)");
-      // Note: If you updated TownGenerator radius to 800, change this to 800!
+      console.log("✈️ Teleport: CITY WALL (800, 50, 40)");
       noa.entities.setPosition(noa.playerEntity, [800, 50, 40]);
+      noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
+  });
+
+  noa.inputs.down.on("wild", () => {
+      console.log("✈️ Teleport: DEEP WILDERNESS (1200, 50, 1200)");
+      noa.entities.setPosition(noa.playerEntity, [1200, 50, 1200]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
@@ -390,9 +393,8 @@ async function main() {
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
 
-    // 2. Zone Calculation
-    const dist = Math.sqrt(p[0]*p[0] + p[2]*p[2]);
-    const newZone = (dist <= TOWN_RADIUS) ? "Town of Beginnings" : "The Wilderness";
+    // 2. Zone Calculation (Using Generator for Accuracy)
+    const newZone = townGen.getZoneName(p[0], p[2]);
 
     // 3. Debounce Logic (Must be in new zone for 350ms to trigger)
     const t = performance.now();

@@ -20,8 +20,10 @@ export class TownGenerator {
     // ==================================================================
     // CONFIGURATION: GIGA-CITY
     // ==================================================================
-    private townRadius = 800;     // Radius 800 = 1600 blocks wide!
-    private wallThickness = 15;   // Thick walls
+    // Changed to public readonly so main.ts can access accurate zone data
+    public readonly townRadius = 800;     // Radius 800 = 1600 blocks wide!
+    public readonly wallThickness = 15;   // Thick walls
+    
     private wallHeight = 30;      // Massive walls
     private baseHeight = 10;      // Universal flat ground level
     private mainRoadWidth = 8;    // Very wide boulevards
@@ -98,7 +100,20 @@ export class TownGenerator {
     }
 
     // --------------------------------------------------------------------------
-    // 2. LAZY BLOCK GENERATION
+    // 2. ZONE LOGIC (For Biome Notification)
+    // --------------------------------------------------------------------------
+    public getZoneName(x: number, z: number): "Town of Beginnings" | "The Wilderness" {
+        const dist = Math.sqrt(x * x + z * z);
+        
+        // Includes the Wall itself in the Town zone
+        if (dist <= (this.townRadius + this.wallThickness)) {
+            return "Town of Beginnings";
+        }
+        return "The Wilderness";
+    }
+
+    // --------------------------------------------------------------------------
+    // 3. LAZY BLOCK GENERATION
     // --------------------------------------------------------------------------
     public getBlockID(x: number, y: number, z: number): number {
         
