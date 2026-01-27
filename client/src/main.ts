@@ -7,8 +7,20 @@ import { TownGenerator } from "./TownGenerator";
 // HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
-const setHud = (t: string) => { 
-    if (hudEl) hudEl.textContent = t; 
+
+// Multi-line HUD support for detailed tracking
+const setHud = (lines: string[]) => { 
+    if (hudEl) {
+        hudEl.innerHTML = lines.join("<br>");
+        Object.assign(hudEl.style, {
+            whiteSpace: "pre-wrap",
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            padding: "10px",
+            color: "white",
+            fontFamily: "monospace",
+            display: "block"
+        });
+    }
 };
 
 // --------------------------------------------------------------------------
@@ -25,14 +37,12 @@ function createBiomeUI() {
   biomeTitleEl = document.createElement("div");
   biomeSubEl = document.createElement("div");
 
-  // Initial Empty State
   biomeTitleEl.textContent = "";
   biomeSubEl.textContent = "";
 
   biomeEl.appendChild(biomeTitleEl);
   biomeEl.appendChild(biomeSubEl);
 
-  // Parent Container Styling
   Object.assign(biomeEl.style, {
     position: "fixed",
     top: "18%",
@@ -48,7 +58,6 @@ function createBiomeUI() {
     whiteSpace: "nowrap",
   });
 
-  // Title Styling (Gold)
   Object.assign(biomeTitleEl.style, {
     fontSize: "48px",
     color: "#FFD700",
@@ -56,7 +65,6 @@ function createBiomeUI() {
     lineHeight: "1",
   });
 
-  // Subtitle Styling (White)
   Object.assign(biomeSubEl.style, {
     marginTop: "6px",
     fontSize: "22px",
@@ -72,22 +80,20 @@ function createBiomeUI() {
 function showBiomeNotification(title: string, subtext: string = "") {
   if (!biomeEl || !biomeTitleEl || !biomeSubEl) return;
 
-  // Cooldown to prevent flicker/spam
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
-  biomeCooldownUntil = t + 1200; // 1.2s cooldown
+  biomeCooldownUntil = t + 1200; // 1.2s cooldown to prevent spam
 
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
 
-  // Cancel any pending hide
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
 
-  // Show Animation
+  // Animate In
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
 
-  // Hide after 2.5s
+  // Animate Out after 2.5s
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -143,14 +149,14 @@ function now() {
 }
 
 async function main() {
-  console.log("🚀 Starting Client with Robust Biome UI...");
-  setHud("Initializing Town Generator...");
-  createBiomeUI(); // Initialize the UI overlay
+  console.log("🚀 Starting Client...");
+  setHud(["Initializing Town Generator..."]);
+  createBiomeUI();
 
   // ========================================================================
   // 1. CONFIGURATION
   // ========================================================================
-  const WORLD_RADIUS = 2000; // Total World Limit
+  const WORLD_RADIUS = 2000;
   const BORDER_BUFFER = 64;
 
   // ========================================================================
@@ -160,17 +166,21 @@ async function main() {
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
-  setHud("Starting Engine...");
+  // Read the exact boundary from the generator
+  // (Requires public readonly townRadius/wallThickness in TownGenerator)
+  const TOWN_RADIUS_LIMIT = townGen.townRadius + townGen.wallThickness; 
+
+  setHud(["Starting Engine..."]);
 
   // ========================================================================
   // 3. SETUP NOA ENGINE
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 16,           // Matched to Server Logic
+    chunkSize: 16,           // Matched to Server Logic (16x16x16)
     chunkAddDistance: 32,    // 32 * 16 = 512 Blocks View Distance
     chunkRemoveDistance: 40, 
-    playerStart: [0, 50, 0], // Start high on the beacon
+    playerStart: [0, 50, 0], // Start high on the Beacon
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -181,28 +191,50 @@ async function main() {
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f');
   
-  // DEBUG TELEPORTS
+  // Debug Teleports
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
 
   // ========================================================================
-  // 4. WORLD BORDER LOGIC
+  // 4. REAL-TIME TRACKER & BORDER LOGIC
   // ========================================================================
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
+    // 1. World Border Physics Clamp
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
-
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
     else if (pos[2] < -WORLD_RADIUS) { pos[2] = -WORLD_RADIUS; modified = true; }
 
     if (modified) {
       noa.entities.setPosition(noa.playerEntity, pos);
-      setHud("🚫 World Border Reached");
     }
+
+    // 2. Update HUD Tracker
+    const x = Math.floor(pos[0]);
+    const y = Math.floor(pos[1]);
+    const z = Math.floor(pos[2]);
+    const dist = Math.floor(Math.sqrt(pos[0]*pos[0] + pos[2]*pos[2]));
+    
+    // Get precise zone info from generator
+    const zoneName = townGen.getZoneName(pos[0], pos[2]);
+    let boundaryMsg = "";
+
+    if (zoneName === "Town of Beginnings") {
+        boundaryMsg = `Wall Boundary at: ${TOWN_RADIUS_LIMIT}m`;
+    } else {
+        boundaryMsg = `Distance to Wall: ${dist - TOWN_RADIUS_LIMIT}m`;
+    }
+
+    setHud([
+        `📍 POS: [${x}, ${y}, ${z}]`,
+        `📏 DIST: ${dist}m`,
+        `🌍 ZONE: ${zoneName.toUpperCase()}`,
+        `🚧 ${boundaryMsg}`
+    ]);
   });
 
   // ========================================================================
@@ -229,6 +261,7 @@ async function main() {
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       // Chunk Index -> World Coordinate conversion
+      // Essential for TownGenerator to place things correctly
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
@@ -296,7 +329,7 @@ async function main() {
   startThrottledRender(handsViewer, 30);
 
   // ========================================================================
-  // 8. INTERACTION & TELEPORTS
+  // 8. INTERACTION & ANIMATION
   // ========================================================================
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
@@ -323,7 +356,7 @@ async function main() {
     requestAnimationFrame(animate);
   };
 
-  // --- DEBUG TELEPORTS ---
+  // --- TELEPORT HANDLERS ---
   noa.inputs.down.on("home", () => {
       console.log("✈️ Teleport: BEACON");
       noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
@@ -345,22 +378,24 @@ async function main() {
   // ========================================================================
   // 9. COLYSEUS NETWORKING
   // ========================================================================
-  setHud("Connecting...");
+  setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
   (window as any).room = room;
 
   console.log(`🟢 Connected: ${room.sessionId}`);
-  setHud(`Connected: ${room.sessionId}`);
 
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
+  // Networked Actions with Safety Check
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
-      room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
+      if (room.connection && room.connection.isOpen) {
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
+      }
       noa.setBlock(AIR, pos[0], pos[1], pos[2]);
     }
   });
@@ -369,13 +404,15 @@ async function main() {
     swingHand();
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
-      room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
+      if (room.connection && room.connection.isOpen) {
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
+      }
       noa.setBlock(GRASS, pos[0], pos[1], pos[2]);
     }
   });
 
   // ========================================================================
-  // 10. CHUNK SUBSCRIPTION & ROBUST BIOME CHECKER
+  // 10. CHUNK SUBSCRIPTION & BIOME CHECKER LOOP
   // ========================================================================
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
@@ -385,18 +422,21 @@ async function main() {
   let pendingSince = 0;
 
   setInterval(() => {
+    // ⚠️ CRITICAL: Stop sending data if server is dead/restarting
+    if (!room || !room.connection || !room.connection.isOpen) return;
+
     const p = noa.entities.getPosition(noa.playerEntity);
     
-    // 1. Send Subscription (Physics)
+    // 1. Send Subscription (for Physics)
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
 
-    // 2. Zone Calculation (Using Generator for Accuracy)
+    // 2. Zone Calculation
     const newZone = townGen.getZoneName(p[0], p[2]);
 
-    // 3. Debounce Logic (Must be in new zone for 350ms to trigger)
+    // 3. Debounce Logic (Zone must match for 350ms to trigger)
     const t = performance.now();
     if (newZone !== pendingZone) {
         pendingZone = newZone;
@@ -414,7 +454,6 @@ async function main() {
         
         currentZone = pendingZone;
     }
-
   }, 250);
 
   // ========================================================================
@@ -434,5 +473,5 @@ async function main() {
 
 main().catch((e) => {
   console.error("❌ FATAL:", e);
-  setHud("Error (check console)");
+  setHud(["Error (check console)"]);
 });
