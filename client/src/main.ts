@@ -7,7 +7,10 @@ import { TownGenerator } from "./TownGenerator";
 // HELPER: HUD
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
-const setHud = (t: string) => { if (hudEl) hudEl.textContent = t; };
+const setHud = (t: string) => { 
+    if (hudEl) hudEl.textContent = t; 
+    console.log(`[HUD] ${t}`); // Debug log for HUD updates
+};
 
 // --------------------------------------------------------------------------
 // HELPER: OVERLAY CANVAS
@@ -57,41 +60,45 @@ function now() {
 }
 
 async function main() {
+  console.log("🚀 Starting Client Initialization...");
   setHud("Initializing Town Generator...");
 
   // ========================================================================
-  // 1. CONFIGURATION - SCALED UP!
+  // 1. CONFIGURATION - MASSIVE WORLD
   // ========================================================================
-  const WORLD_RADIUS = 2000;  // 4000x4000 World (massive wilderness)
+  const WORLD_RADIUS = 2000;  // 4000x4000 World
   const BORDER_BUFFER = 64;
 
   // ========================================================================
   // 2. INITIALIZE GENERATOR (LAZY MODE)
   // ========================================================================
-  // Initialize the massive 4000x4000 world layout
+  console.time("TownGenerationInit");
   const townGen = new TownGenerator(4000, 4000, 12345);
+  console.timeEnd("TownGenerationInit");
+  console.log("✅ Town Generator: Blueprint ready.");
 
   setHud("Starting Engine...");
 
   // ========================================================================
-  // 3. SETUP NOA ENGINE - MUCH LARGER VIEW DISTANCE
+  // 3. SETUP NOA ENGINE
   // ========================================================================
+  console.log("🎮 Initializing noa-engine...");
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 32,           // Optimized: 32 blocks per chunk (fewer draw calls)
-    chunkAddDistance: 16,    // 16 * 32 = 512 blocks view radius! (Fixes void edges)
-    chunkRemoveDistance: 20, // Keep chunks loaded longer to prevent flickering
-    playerStart: [0, 15, 0], // Start safely above ground
-    texturePath: ""          // Not used with color materials
+    chunkSize: 32,           
+    chunkAddDistance: 16,    // 512 blocks view radius
+    chunkRemoveDistance: 20, 
+    playerStart: [0, 15, 0], 
+    texturePath: ""          
   });
   (window as any).noa = noa;
 
   // ------------------------------------------------------------------------
-  // ACTION BINDING: 'F' acts as 'Fire' (Left Click)
+  // ACTION BINDING
   // ------------------------------------------------------------------------
-  // Binds the physical 'F' key to the 'fire' action
+  console.log("⌨️ Binding Keys: F (Fire)");
   noa.inputs.bind('fire', 'KeyF'); 
-  noa.inputs.bind('fire', 'f'); // Fallback
+  noa.inputs.bind('fire', 'f');
 
   // ========================================================================
   // 4. WORLD BORDER LOGIC
@@ -109,12 +116,14 @@ async function main() {
     if (modified) {
       noa.entities.setPosition(noa.playerEntity, pos);
       setHud("🚫 World Border Reached");
+      console.warn("🚫 Player hit world border at", pos);
     }
   });
 
   // ========================================================================
   // 5. REGISTER MATERIALS & BLOCKS
   // ========================================================================
+  console.log("🎨 Registering Materials...");
   
   // -- A. Register Materials --
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
@@ -134,8 +143,13 @@ async function main() {
   // 6. CLIENT-SIDE CHUNK RENDERING
   // ========================================================================
   const chunkSize = noa.world._chunkSize;
+  let chunkCount = 0;
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
+      chunkCount++;
+      // Log every 50th chunk to show activity without flooding console
+      if (chunkCount % 50 === 0) console.log(`♻️ Generated ${chunkCount} chunks so far...`);
+
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
@@ -155,9 +169,7 @@ async function main() {
             const globalY = chunkY + y;
             const globalZ = chunkZ + z;
 
-            // Calculates the block on-the-fly (Fast & Low Memory)
             const id = townGen.getBlockID(globalX, globalY, globalZ);
-            
             dataArr.set(x, y, z, id);
           }
         }
@@ -171,6 +183,7 @@ async function main() {
   // ========================================================================
   // 7. HANDS OVERLAY
   // ========================================================================
+  console.log("🖐️ Initializing Hands Overlay...");
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
     width: 400,
@@ -209,6 +222,7 @@ async function main() {
   // 8. INTERACTION
   // ========================================================================
   const swingHand = () => {
+    // console.log("⚔️ Swing Hand Animation Triggered"); 
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
     const start = now();
@@ -236,16 +250,19 @@ async function main() {
   // ========================================================================
   // 9. COLYSEUS NETWORKING
   // ========================================================================
-  setHud("Connecting...");
+  setHud("Connecting to Server...");
+  console.log("🔌 Connecting to Colyseus...");
+  
   const client = new Client(window.location.origin);
   const room = await client.joinOrCreate("voxel");
   (window as any).room = room;
 
-  console.log("✅ Joined:", room.roomId, room.sessionId);
+  console.log(`🟢 Connected! RoomID: ${room.roomId}, SessionID: ${room.sessionId}`);
   setHud(`Connected: ${room.sessionId}`);
 
   // Handle Server Updates
   room.onMessage("blockUpdate", (msg) => {
+    console.log(`📩 Received Block Update: [${msg.x}, ${msg.y}, ${msg.z}] -> ID: ${msg.id}`);
     noa.setBlock(msg.id, msg.x, msg.y, msg.z);
   });
 
@@ -254,8 +271,11 @@ async function main() {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
+      console.log(`🔨 Breaking Block at [${pos[0]}, ${pos[1]}, ${pos[2]}]`);
       room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
       noa.setBlock(AIR, pos[0], pos[1], pos[2]);
+    } else {
+        console.log("🔫 Fire pressed (no block targeted)");
     }
   });
 
@@ -264,6 +284,7 @@ async function main() {
     swingHand();
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
+      console.log(`🧱 Placing Block at [${pos[0]}, ${pos[1]}, ${pos[2]}]`);
       room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
       noa.setBlock(GRASS, pos[0], pos[1], pos[2]);
     }
@@ -272,9 +293,11 @@ async function main() {
   // ========================================================================
   // 10. CHUNK SUBSCRIPTION LOOP
   // ========================================================================
-  // The server uses 16-sized chunks for logic, even if we render 32-sized.
   const SERVER_CHUNK_SIZE = 16; 
-  const SUBSCRIPTION_RADIUS = 8; // Sufficient for server physics
+  const SUBSCRIPTION_RADIUS = 8;
+  
+  // Track last chunk to reduce log spam
+  let lastCx = -9999, lastCz = -9999; 
 
   setInterval(() => {
     const p = noa.entities.getPosition(noa.playerEntity);
@@ -282,6 +305,13 @@ async function main() {
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
+
+    // Only log if we crossed a chunk boundary
+    if (cx !== lastCx || cz !== lastCz) {
+        console.log(`🚶 Player moved to Server Chunk [${cx}, ${cy}, ${cz}] - Subscribing...`);
+        lastCx = cx; 
+        lastCz = cz;
+    }
 
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
   }, 250);
@@ -302,6 +332,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error("❌ FATAL ERROR:", e);
   setHud("Error (check console)");
 });

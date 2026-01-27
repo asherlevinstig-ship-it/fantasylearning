@@ -1,337 +1,153 @@
-import { Client } from "colyseus.js";
-import { Engine } from "noa-engine";
-import { SkinViewer } from "skinview3d";
-import { TownGenerator } from "./TownGenerator";
+import * as ROT from "rot-js";
+import { createNoise2D } from "simplex-noise";
 
-// --------------------------------------------------------------------------
-// HELPER: HUD
-// --------------------------------------------------------------------------
-const hudEl = document.getElementById("hud") as HTMLDivElement | null;
-const setHud = (t: string) => { 
-    if (hudEl) hudEl.textContent = t; 
-    console.log(`[HUD] ${t}`); // Debug log for HUD updates
-};
+// BLOCK REGISTRY (Must match main.ts IDs)
+const AIR = 0;
+const GRASS = 1;
+const DIRT = 2;
+const STONE_BRICK = 3; // Foundations, Walls, Plaza
+const GRAVEL = 4;      // Roads
 
-// --------------------------------------------------------------------------
-// HELPER: OVERLAY CANVAS
-// --------------------------------------------------------------------------
-function createOverlayCanvas(opts: {
-  id: string;
-  width: number;
-  height: number;
-  style: Partial<CSSStyleDeclaration>;
-}) {
-  const c = document.createElement("canvas");
-  c.id = opts.id;
-  c.width = opts.width;
-  c.height = opts.height;
-  
-  Object.assign(c.style, {
-    position: "fixed",
-    pointerEvents: "none",
-    imageRendering: "pixelated",
-    zIndex: "100",
-    ...opts.style,
-  });
-  
-  document.body.appendChild(c);
-  return c;
-}
+export class TownGenerator {
+    width: number;
+    depth: number;
+    noise2D: any;
 
-// --------------------------------------------------------------------------
-// HELPER: THROTTLED RENDER LOOP
-// --------------------------------------------------------------------------
-function startThrottledRender(viewer: SkinViewer, fps = 30) {
-  const frameMs = 1000 / fps;
-  let last = performance.now();
-
-  const loop = (t: number) => {
-    if (t - last >= frameMs) {
-      viewer.render();
-      last = t;
-    }
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-}
-
-function now() {
-  return performance.now();
-}
-
-async function main() {
-  console.log("🚀 Starting Client Initialization...");
-  setHud("Initializing Town Generator...");
-
-  // ========================================================================
-  // 1. CONFIGURATION - MASSIVE WORLD
-  // ========================================================================
-  const WORLD_RADIUS = 2000;  // 4000x4000 World
-  const BORDER_BUFFER = 64;
-
-  // ========================================================================
-  // 2. INITIALIZE GENERATOR (LAZY MODE)
-  // ========================================================================
-  console.time("TownGenerationInit");
-  const townGen = new TownGenerator(4000, 4000, 12345);
-  console.timeEnd("TownGenerationInit");
-  console.log("✅ Town Generator: Blueprint ready.");
-
-  setHud("Starting Engine...");
-
-  // ========================================================================
-  // 3. SETUP NOA ENGINE
-  // ========================================================================
-  console.log("🎮 Initializing noa-engine...");
-  const noa: any = new Engine({
-    debug: true,
-    chunkSize: 32,           
-    chunkAddDistance: 16,    // 512 blocks view radius
-    chunkRemoveDistance: 20, 
-    playerStart: [0, 15, 0], 
-    texturePath: ""          
-  });
-  (window as any).noa = noa;
-
-  // ------------------------------------------------------------------------
-  // ACTION BINDING
-  // ------------------------------------------------------------------------
-  console.log("⌨️ Binding Keys: F (Fire)");
-  noa.inputs.bind('fire', 'KeyF'); 
-  noa.inputs.bind('fire', 'f');
-
-  // ========================================================================
-  // 4. WORLD BORDER LOGIC
-  // ========================================================================
-  noa.on('tick', () => {
-    const pos = noa.entities.getPosition(noa.playerEntity);
-    let modified = false;
-
-    if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
-    else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
-
-    if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
-    else if (pos[2] < -WORLD_RADIUS) { pos[2] = -WORLD_RADIUS; modified = true; }
-
-    if (modified) {
-      noa.entities.setPosition(noa.playerEntity, pos);
-      setHud("🚫 World Border Reached");
-      console.warn("🚫 Player hit world border at", pos);
-    }
-  });
-
-  // ========================================================================
-  // 5. REGISTER MATERIALS & BLOCKS
-  // ========================================================================
-  console.log("🎨 Registering Materials...");
-  
-  // -- A. Register Materials --
-  noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
-  noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
-  noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
-  noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
-
-  // -- B. Register Blocks --
-  const AIR = 0;
-  
-  const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
-  const DIRT = noa.registry.registerBlock(2, { material: "dirt", solid: true, opaque: true });
-  const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
-  const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
-
-  // ========================================================================
-  // 6. CLIENT-SIDE CHUNK RENDERING
-  // ========================================================================
-  const chunkSize = noa.world._chunkSize;
-  let chunkCount = 0;
-
-  noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
-      chunkCount++;
-      // Log every 50th chunk to show activity without flooding console
-      if (chunkCount % 50 === 0) console.log(`♻️ Generated ${chunkCount} chunks so far...`);
-
-      const chunkX = cx * chunkSize;
-      const chunkY = cy * chunkSize;
-      const chunkZ = cz * chunkSize;
-      
-      // Skip chunks way outside the world
-      if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
-          Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
-        noa.world.setChunkData(requestID, dataArr, null);
-        return;
-      }
-
-      // Fill the chunk by querying the generator
-      for (let x = 0; x < chunkSize; x++) {
-        for (let z = 0; z < chunkSize; z++) {
-          for (let y = 0; y < chunkSize; y++) {
-            const globalX = chunkX + x;
-            const globalY = chunkY + y;
-            const globalZ = chunkZ + z;
-
-            const id = townGen.getBlockID(globalX, globalY, globalZ);
-            dataArr.set(x, y, z, id);
-          }
-        }
-      }
-      noa.world.setChunkData(requestID, dataArr, null);
-    }
-  );
-
-  const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
-
-  // ========================================================================
-  // 7. HANDS OVERLAY
-  // ========================================================================
-  console.log("🖐️ Initializing Hands Overlay...");
-  const handsCanvas = createOverlayCanvas({
-    id: "hands-view",
-    width: 400,
-    height: 400,
-    style: {
-      left: "auto", right: "0px", bottom: "0px", top: "auto",
-      width: "35vw", height: "45vh", background: "transparent",
-    },
-  });
-
-  const handsViewer = new SkinViewer({ canvas: handsCanvas, width: 400, height: 400 });
-  handsViewer.fov = 70;
-  handsViewer.zoom = 1.0;
-  await handsViewer.loadSkin(SKIN_URL);
-
-  const po = handsViewer.playerObject;
-  if (po && po.skin) {
-    po.skin.head.visible = false;
-    po.skin.body.visible = false;
-    po.skin.leftLeg.visible = false;
-    po.skin.rightLeg.visible = false;
-    po.skin.leftArm.visible = false; 
-    po.skin.rightArm.visible = true;
-
-    po.skin.rightArm.rotation.x = -0.4;
-    po.skin.rightArm.rotation.z = 0.2;
-    po.skin.rightArm.rotation.y = 0.1;
-    po.skin.rightArm.position.set(-2, -6, 0);
-  }
-
-  handsViewer.camera.position.set(-4, 0, -8);
-  handsViewer.camera.lookAt(-2, -8, 4);
-  startThrottledRender(handsViewer, 30);
-
-  // ========================================================================
-  // 8. INTERACTION
-  // ========================================================================
-  const swingHand = () => {
-    // console.log("⚔️ Swing Hand Animation Triggered"); 
-    const skin = handsViewer.playerObject?.skin;
-    if (!skin?.rightArm) return;
-    const start = now();
-    const duration = 200; 
-    const baseX = -0.4;
-    const baseZ = 0.2;
-
-    const animate = () => {
-      const t = now() - start;
-      const k = Math.min(1, t / duration);
-      const swing = Math.sin(k * Math.PI);
-      
-      skin.rightArm.rotation.x = baseX - swing * 1.2;
-      skin.rightArm.rotation.z = baseZ - swing * 0.3;
-
-      if (k < 1) requestAnimationFrame(animate);
-      else {
-        skin.rightArm.rotation.x = baseX;
-        skin.rightArm.rotation.z = baseZ;
-      }
-    };
-    requestAnimationFrame(animate);
-  };
-
-  // ========================================================================
-  // 9. COLYSEUS NETWORKING
-  // ========================================================================
-  setHud("Connecting to Server...");
-  console.log("🔌 Connecting to Colyseus...");
-  
-  const client = new Client(window.location.origin);
-  const room = await client.joinOrCreate("voxel");
-  (window as any).room = room;
-
-  console.log(`🟢 Connected! RoomID: ${room.roomId}, SessionID: ${room.sessionId}`);
-  setHud(`Connected: ${room.sessionId}`);
-
-  // Handle Server Updates
-  room.onMessage("blockUpdate", (msg) => {
-    console.log(`📩 Received Block Update: [${msg.x}, ${msg.y}, ${msg.z}] -> ID: ${msg.id}`);
-    noa.setBlock(msg.id, msg.x, msg.y, msg.z);
-  });
-
-  // LEFT CLICK or 'F' Key: Break Block
-  noa.inputs.down.on("fire", () => {
-    swingHand(); 
-    if (noa.targetedBlock) {
-      const pos = noa.targetedBlock.position;
-      console.log(`🔨 Breaking Block at [${pos[0]}, ${pos[1]}, ${pos[2]}]`);
-      room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
-      noa.setBlock(AIR, pos[0], pos[1], pos[2]);
-    } else {
-        console.log("🔫 Fire pressed (no block targeted)");
-    }
-  });
-
-  // RIGHT CLICK: Place Block
-  noa.inputs.down.on("alt-fire", () => {
-    swingHand();
-    if (noa.targetedBlock) {
-      const pos = noa.targetedBlock.adjacent;
-      console.log(`🧱 Placing Block at [${pos[0]}, ${pos[1]}, ${pos[2]}]`);
-      room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
-      noa.setBlock(GRASS, pos[0], pos[1], pos[2]);
-    }
-  });
-
-  // ========================================================================
-  // 10. CHUNK SUBSCRIPTION LOOP
-  // ========================================================================
-  const SERVER_CHUNK_SIZE = 16; 
-  const SUBSCRIPTION_RADIUS = 8;
-  
-  // Track last chunk to reduce log spam
-  let lastCx = -9999, lastCz = -9999; 
-
-  setInterval(() => {
-    const p = noa.entities.getPosition(noa.playerEntity);
+    // Optimization: Store only 2D layout data
+    private houseMap = new Set<string>();
     
-    const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
-    const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
-    const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
+    // ==================================================================
+    // CONFIGURATION: MASSIVE TOWN
+    // ==================================================================
+    private townRadius = 400;     // Radius 400 = 800 blocks wide town!
+    private wallThickness = 5;    // Thicker walls (Imposing)
+    private wallHeight = 10;      // Taller walls (Hard to jump over)
+    private baseHeight = 10;      // Universal flat ground level
+    private mainRoadWidth = 5;    // Wider main roads (11 blocks wide)
 
-    // Only log if we crossed a chunk boundary
-    if (cx !== lastCx || cz !== lastCz) {
-        console.log(`🚶 Player moved to Server Chunk [${cx}, ${cy}, ${cz}] - Subscribing...`);
-        lastCx = cx; 
-        lastCz = cz;
+    constructor(width: number, depth: number, seed: number) {
+        this.width = width;
+        this.depth = depth;
+
+        ROT.RNG.setSeed(seed);
+        this.noise2D = createNoise2D(() => ROT.RNG.getUniform());
+
+        this.initLayout();
     }
 
-    room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
-  }, 250);
+    // --------------------------------------------------------------------------
+    // 1. LAYOUT PRE-CALCULATION
+    // --------------------------------------------------------------------------
+    private initLayout() {
+        console.log("📐 Calculating Massive Town Layout...");
+        
+        // Scale up attempts to fill the huge area
+        const houseAttempts = 3000; 
+        const PLAZA_RADIUS = 30;
 
-  // ========================================================================
-  // 11. RESIZE HANDLING
-  // ========================================================================
-  const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
-  const resizeHands = () => {
-    const rawSize = Math.min(window.innerWidth * 0.35, 400);
-    const size = Math.floor(rawSize * OVERLAY_DPR);
-    handsCanvas.width = size;
-    handsCanvas.height = size;
-    handsViewer.setSize(size, size);
-  };
-  window.addEventListener("resize", resizeHands);
-  resizeHands();
+        for (let i = 0; i < houseAttempts; i++) {
+            // Pick random spot inside town
+            const r = (ROT.RNG.getUniform() * (this.townRadius - 20)); 
+            const theta = ROT.RNG.getUniform() * 2 * Math.PI;
+            
+            const hx = Math.floor(r * Math.cos(theta));
+            const hz = Math.floor(r * Math.sin(theta));
+
+            // CHECKS:
+            if (this.isRoad(hx, hz)) continue;
+            if (Math.sqrt(hx*hx + hz*hz) < PLAZA_RADIUS + 5) continue;
+
+            // Check if 9x9 plot is safe (bigger houses for bigger town)
+            let safe = true;
+            for (let px = hx - 4; px <= hx + 4; px++) {
+                for (let pz = hz - 4; pz <= hz + 4; pz++) {
+                    if (this.isRoad(px, pz)) safe = false;
+                }
+            }
+
+            if (safe) {
+                // Mark foundation (7x7 house on 9x9 plot)
+                for (let px = hx - 3; px <= hx + 3; px++) {
+                    for (let pz = hz - 3; pz <= hz + 3; pz++) {
+                        this.houseMap.add(`${px},${pz}`);
+                    }
+                }
+            }
+        }
+    }
+
+    // Helper: Defines where roads are located
+    private isRoad(x: number, z: number): boolean {
+        // 1. Main Cross Roads (North/South/East/West)
+        if (Math.abs(x) <= this.mainRoadWidth || Math.abs(z) <= this.mainRoadWidth) return true;
+        
+        const dist = Math.sqrt(x*x + z*z);
+
+        // 2. Inner Ring Road (Radius ~150)
+        if (dist > 145 && dist < 160) return true;
+
+        // 3. Outer Ring Road (Radius ~300)
+        if (dist > 295 && dist < 310) return true;
+
+        return false;
+    }
+
+    // --------------------------------------------------------------------------
+    // 2. LAZY BLOCK GENERATION
+    // --------------------------------------------------------------------------
+    public getBlockID(x: number, y: number, z: number): number {
+        
+        const dist = Math.sqrt(x*x + z*z);
+        let height = 0;
+        let surface = GRASS;
+        let isWall = false;
+
+        // --- ZONE 1: INSIDE THE TOWN (FLAT) ---
+        if (dist <= this.townRadius) {
+            height = this.baseHeight; 
+            
+            if (dist <= 30) {
+                surface = STONE_BRICK; // Huge Plaza
+            } else if (this.isRoad(x, z)) {
+                surface = GRAVEL; 
+            } else if (this.houseMap.has(`${x},${z}`)) {
+                surface = STONE_BRICK; // Foundations
+            } else {
+                surface = GRASS; // Lawns
+            }
+        }
+        
+        // --- ZONE 2: MASSIVE CITY WALLS ---
+        else if (dist <= this.townRadius + this.wallThickness) {
+            isWall = true;
+            // Massive Gates (Main Roads only)
+            if (Math.abs(x) <= this.mainRoadWidth + 2 || Math.abs(z) <= this.mainRoadWidth + 2) {
+                height = this.baseHeight; // Gate floor
+                surface = GRAVEL;
+            } else {
+                // Solid Wall
+                height = this.baseHeight + this.wallHeight;
+                surface = STONE_BRICK;
+            }
+        }
+
+        // --- ZONE 3: WILDERNESS ---
+        else {
+            const n = this.noise2D(x / 150, z / 150); // Larger rolling hills
+            height = Math.floor((this.baseHeight - 2) + (n + 1) * 12);
+        }
+
+        // ----------------------------------------
+        // RETURN BLOCK ID
+        // ----------------------------------------
+        if (y > height) return AIR;
+        if (y === height) return surface;
+        if (y === 0) return STONE_BRICK;
+
+        // Fill Logic
+        if (isWall) return STONE_BRICK;
+        
+        if (height - y < 5) return DIRT;
+        return STONE_BRICK; 
+    }
 }
-
-main().catch((e) => {
-  console.error("❌ FATAL ERROR:", e);
-  setHud("Error (check console)");
-});
