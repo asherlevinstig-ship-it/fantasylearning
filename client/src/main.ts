@@ -12,13 +12,15 @@ const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (lines: string[]) => { 
     if (hudEl) {
         hudEl.innerHTML = lines.join("<br>");
+        // Ensure visibility styles are set
         Object.assign(hudEl.style, {
             whiteSpace: "pre-wrap",
             backgroundColor: "rgba(0, 0, 0, 0.5)",
             padding: "10px",
             color: "white",
             fontFamily: "monospace",
-            display: "block"
+            display: "block", // Ensure it is visible
+            borderRadius: "8px"
         });
     }
 };
@@ -82,18 +84,16 @@ function showBiomeNotification(title: string, subtext: string = "") {
 
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
-  biomeCooldownUntil = t + 1200; // 1.2s cooldown to prevent spam
+  biomeCooldownUntil = t + 1200; // 1.2s cooldown
 
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
 
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
 
-  // Animate In
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
 
-  // Animate Out after 2.5s
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -166,8 +166,6 @@ async function main() {
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
-  // Read the exact boundary from the generator
-  // (Requires public readonly townRadius/wallThickness in TownGenerator)
   const TOWN_RADIUS_LIMIT = townGen.townRadius + townGen.wallThickness; 
 
   setHud(["Starting Engine..."]);
@@ -177,10 +175,10 @@ async function main() {
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 16,           // Matched to Server Logic (16x16x16)
-    chunkAddDistance: 32,    // 32 * 16 = 512 Blocks View Distance
+    chunkSize: 16,           
+    chunkAddDistance: 32,    // 512 Blocks View Distance
     chunkRemoveDistance: 40, 
-    playerStart: [0, 50, 0], // Start high on the Beacon
+    playerStart: [0, 50, 0], 
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -195,6 +193,20 @@ async function main() {
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
+
+  // TOGGLE HUD BINDING (F3)
+  noa.inputs.bind('debug', 'F3'); 
+
+  let showDebug = true; // State flag
+
+  noa.inputs.down.on('debug', () => {
+      showDebug = !showDebug; // Toggle
+      if (!showDebug && hudEl) {
+          hudEl.style.display = "none"; // Hide immediately
+      } else if (showDebug && hudEl) {
+          hudEl.style.display = "block"; // Show immediately
+      }
+  });
 
   // ========================================================================
   // 4. REAL-TIME TRACKER & BORDER LOGIC
@@ -213,28 +225,29 @@ async function main() {
       noa.entities.setPosition(noa.playerEntity, pos);
     }
 
-    // 2. Update HUD Tracker
-    const x = Math.floor(pos[0]);
-    const y = Math.floor(pos[1]);
-    const z = Math.floor(pos[2]);
-    const dist = Math.floor(Math.sqrt(pos[0]*pos[0] + pos[2]*pos[2]));
-    
-    // Get precise zone info from generator
-    const zoneName = townGen.getZoneName(pos[0], pos[2]);
-    let boundaryMsg = "";
+    // 2. Update HUD Tracker (Only if enabled)
+    if (showDebug) {
+        const x = Math.floor(pos[0]);
+        const y = Math.floor(pos[1]);
+        const z = Math.floor(pos[2]);
+        const dist = Math.floor(Math.sqrt(pos[0]*pos[0] + pos[2]*pos[2]));
+        
+        const zoneName = townGen.getZoneName(pos[0], pos[2]);
+        let boundaryMsg = "";
 
-    if (zoneName === "Town of Beginnings") {
-        boundaryMsg = `Wall Boundary at: ${TOWN_RADIUS_LIMIT}m`;
-    } else {
-        boundaryMsg = `Distance to Wall: ${dist - TOWN_RADIUS_LIMIT}m`;
+        if (zoneName === "Town of Beginnings") {
+            boundaryMsg = `Wall Boundary at: ${TOWN_RADIUS_LIMIT}m`;
+        } else {
+            boundaryMsg = `Distance to Wall: ${dist - TOWN_RADIUS_LIMIT}m`;
+        }
+
+        setHud([
+            `📍 POS: [${x}, ${y}, ${z}]`,
+            `📏 DIST: ${dist}m`,
+            `🌍 ZONE: ${zoneName.toUpperCase()}`,
+            `🚧 ${boundaryMsg}`
+        ]);
     }
-
-    setHud([
-        `📍 POS: [${x}, ${y}, ${z}]`,
-        `📏 DIST: ${dist}m`,
-        `🌍 ZONE: ${zoneName.toUpperCase()}`,
-        `🚧 ${boundaryMsg}`
-    ]);
   });
 
   // ========================================================================
@@ -261,12 +274,10 @@ async function main() {
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       // Chunk Index -> World Coordinate conversion
-      // Essential for TownGenerator to place things correctly
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Optimization: Skip chunks outside world
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
@@ -436,7 +447,7 @@ async function main() {
     // 2. Zone Calculation
     const newZone = townGen.getZoneName(p[0], p[2]);
 
-    // 3. Debounce Logic (Zone must match for 350ms to trigger)
+    // 3. Debounce Logic
     const t = performance.now();
     if (newZone !== pendingZone) {
         pendingZone = newZone;

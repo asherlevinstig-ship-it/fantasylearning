@@ -3,7 +3,7 @@ import { PlayerState } from "./PlayerState";
 
 export class VoxelState extends Schema {
   // We ONLY sync players now. 
-  // Terrain is genersated deterministically on the client, 
+  // Terrain is generatedssss deterministically on the client, 
   // and modifications are sent via messages, not schema.
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
 }
