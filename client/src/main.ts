@@ -4,7 +4,7 @@ import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 
 // --------------------------------------------------------------------------
-// HELPER: HUD (Top Left Info)
+// HELPER: HUD
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (t: string) => { 
@@ -12,40 +12,87 @@ const setHud = (t: string) => {
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME NOTIFICATION UI (Minecraft Style)
+// HELPER: BIOME NOTIFICATION UI (Minecraft Style - Robust)
 // --------------------------------------------------------------------------
-let biomeEl: HTMLDivElement;
+let biomeEl: HTMLDivElement | null = null;
+let biomeTitleEl: HTMLDivElement | null = null;
+let biomeSubEl: HTMLDivElement | null = null;
+let biomeHideTimer: number | null = null;
+let biomeCooldownUntil = 0;
 
 function createBiomeUI() {
-    biomeEl = document.createElement("div");
-    Object.assign(biomeEl.style, {
-        position: "fixed",
-        top: "20%",
-        left: "0",
-        width: "100%",
-        textAlign: "center",
-        fontSize: "48px",
-        fontFamily: "Impact, sans-serif",
-        color: "#FFD700", // Gold color
-        textShadow: "4px 4px 0px #000",
-        pointerEvents: "none",
-        opacity: "0",
-        transition: "opacity 1s ease-in-out",
-        zIndex: "200"
-    });
-    document.body.appendChild(biomeEl);
+  biomeEl = document.createElement("div");
+  biomeTitleEl = document.createElement("div");
+  biomeSubEl = document.createElement("div");
+
+  // Initial Empty State
+  biomeTitleEl.textContent = "";
+  biomeSubEl.textContent = "";
+
+  biomeEl.appendChild(biomeTitleEl);
+  biomeEl.appendChild(biomeSubEl);
+
+  // Parent Container Styling
+  Object.assign(biomeEl.style, {
+    position: "fixed",
+    top: "18%",
+    left: "50%",
+    transform: "translateX(-50%) translateY(-10px)",
+    textAlign: "center",
+    fontFamily: "Impact, system-ui, sans-serif",
+    pointerEvents: "none",
+    opacity: "0",
+    transition: "opacity 300ms ease, transform 300ms ease",
+    zIndex: "9999",
+    userSelect: "none",
+    whiteSpace: "nowrap",
+  });
+
+  // Title Styling (Gold)
+  Object.assign(biomeTitleEl.style, {
+    fontSize: "48px",
+    color: "#FFD700",
+    textShadow: "4px 4px 0px #000",
+    lineHeight: "1",
+  });
+
+  // Subtitle Styling (White)
+  Object.assign(biomeSubEl.style, {
+    marginTop: "6px",
+    fontSize: "22px",
+    color: "#ffffff",
+    textShadow: "3px 3px 0px #000",
+    opacity: "0.95",
+  });
+
+  document.body.appendChild(biomeEl);
+  console.log("✅ Biome UI created.");
 }
 
-function showBiomeNotification(text: string, subtext: string = "") {
-    if (!biomeEl) return;
-    
-    biomeEl.innerHTML = `${text}<br><span style="font-size: 24px; color: #FFF;">${subtext}</span>`;
-    biomeEl.style.opacity = "1";
+function showBiomeNotification(title: string, subtext: string = "") {
+  if (!biomeEl || !biomeTitleEl || !biomeSubEl) return;
 
-    // Fade out after 3 seconds
-    setTimeout(() => {
-        biomeEl.style.opacity = "0";
-    }, 3000);
+  // Cooldown to prevent flicker/spam
+  const t = performance.now();
+  if (t < biomeCooldownUntil) return;
+  biomeCooldownUntil = t + 1200; // 1.2s cooldown
+
+  biomeTitleEl.textContent = title;
+  biomeSubEl.textContent = subtext;
+
+  // Cancel any pending hide
+  if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
+
+  // Show Animation
+  biomeEl.style.opacity = "1";
+  biomeEl.style.transform = "translateX(-50%) translateY(0px)";
+
+  // Hide after 2.5s
+  biomeHideTimer = window.setTimeout(() => {
+    if (!biomeEl) return;
+    biomeEl.style.opacity = "0";
+    biomeEl.style.transform = "translateX(-50%) translateY(-10px)";
+  }, 2500);
 }
 
 // --------------------------------------------------------------------------
@@ -96,14 +143,14 @@ function now() {
 }
 
 async function main() {
-  console.log("🚀 Starting Client...");
+  console.log("🚀 Starting Client with Robust Biome UI...");
   setHud("Initializing Town Generator...");
-  createBiomeUI(); // Initialize the UI
+  createBiomeUI(); // Initialize the new UI
 
   // ========================================================================
   // 1. CONFIGURATION
   // ========================================================================
-  const WORLD_RADIUS = 2000; // Total World Limit
+  const WORLD_RADIUS = 2000;
   const TOWN_RADIUS = 800;   // The City Walls are here
   const BORDER_BUFFER = 64;
 
@@ -121,10 +168,10 @@ async function main() {
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
-    chunkSize: 32,           
-    chunkAddDistance: 16,    
-    chunkRemoveDistance: 20, 
-    playerStart: [0, 50, 0], 
+    chunkSize: 16,           // Matched to Server Logic
+    chunkAddDistance: 32,    // 512 Blocks View Distance
+    chunkRemoveDistance: 40, 
+    playerStart: [0, 35, 0], // Start high
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -140,8 +187,9 @@ async function main() {
   noa.inputs.bind('wall', 'KeyH'); 
 
   // ========================================================================
-  // 4. WORLD BORDER LOGIC
+  // 4. WORLD BORDER LOGIC (Disabled for Debugging)
   // ========================================================================
+  /*
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
@@ -157,6 +205,7 @@ async function main() {
       setHud("🚫 World Border Reached");
     }
   });
+  */
 
   // ========================================================================
   // 5. REGISTER MATERIALS & BLOCKS
@@ -181,12 +230,12 @@ async function main() {
   console.log(`📐 Chunk size: ${chunkSize}`);
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
-      // Convert Index -> World Coord
+      // Chunk Index -> World Coordinate conversion
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Optimization: Skip chunks outside world
+      // Skip chunks outside world
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
@@ -279,12 +328,13 @@ async function main() {
   // --- DEBUG TELEPORTS ---
   noa.inputs.down.on("home", () => {
       console.log("✈️ Teleport: BEACON");
-      noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
+      noa.entities.setPosition(noa.playerEntity, [0, 35, 0]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   noa.inputs.down.on("wall", () => {
-      console.log("✈️ Teleport: CITY WALL (800, 50, 40)");
+      console.log("✈️ Teleport: CITY WALL (400, 35, 40)");
+      // Note: If you updated TownGenerator radius to 800, change this to 800!
       noa.entities.setPosition(noa.playerEntity, [800, 50, 40]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
@@ -322,44 +372,45 @@ async function main() {
   });
 
   // ========================================================================
-  // 10. CHUNK SUBSCRIPTION & BIOME CHECKER
+  // 10. CHUNK SUBSCRIPTION & ROBUST BIOME CHECKER
   // ========================================================================
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
   
   let currentZone = "Unknown";
+  let pendingZone = "Unknown";
+  let pendingSince = 0;
 
   setInterval(() => {
-    // 1. Get Position
     const p = noa.entities.getPosition(noa.playerEntity);
     
-    // 2. Send Subscription
+    // 1. Send Subscription (Physics)
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
 
-    // 3. Biome/Zone Logic
+    // 2. Zone Calculation
     const dist = Math.sqrt(p[0]*p[0] + p[2]*p[2]);
-    let newZone = "";
+    const newZone = (dist <= TOWN_RADIUS) ? "Town of Beginnings" : "The Wilderness";
 
-    if (dist <= TOWN_RADIUS) {
-        newZone = "Town of Beginnings";
-    } else {
-        newZone = "The Wilderness";
+    // 3. Debounce Logic (Must be in new zone for 350ms to trigger)
+    const t = performance.now();
+    if (newZone !== pendingZone) {
+        pendingZone = newZone;
+        pendingSince = t;
     }
 
-    // 4. Trigger Notification if Zone Changed
-    if (newZone !== currentZone) {
-        console.log(`🗺️ Zone Change: ${currentZone} -> ${newZone}`);
+    if (pendingZone !== currentZone && (t - pendingSince) > 350) {
+        console.log(`🗺️ Zone Change: ${currentZone} -> ${pendingZone}`);
         
-        if (newZone === "Town of Beginnings") {
-            showBiomeNotification(newZone, "Safe Zone");
+        if (pendingZone === "Town of Beginnings") {
+            showBiomeNotification(pendingZone, "Safe Zone");
         } else {
-            showBiomeNotification(newZone, "PvP Enabled");
+            showBiomeNotification(pendingZone, "PvP Enabled");
         }
         
-        currentZone = newZone;
+        currentZone = pendingZone;
     }
 
   }, 250);
