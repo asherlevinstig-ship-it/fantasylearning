@@ -8,7 +8,6 @@ import { TownGenerator } from "./TownGenerator";
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 
-// Multi-line HUD support for detailed tracking
 const setHud = (lines: string[]) => { 
     if (hudEl) {
         hudEl.innerHTML = lines.join("<br>");
@@ -236,6 +235,13 @@ async function main() {
         const dist = Math.floor(Math.sqrt(pos[0]*pos[0] + pos[2]*pos[2]));
         
         const zoneName = townGen.getZoneName(pos[0], pos[2]);
+        
+        // --- STEP A DEBUGGING (Inside Tick Loop) ---
+        // This prints to console if logic seems weird
+        // const limit = townGen.townRadius + townGen.wallThickness;
+        // console.log(`[ZONE] x=${pos[0].toFixed(1)} z=${pos[2].toFixed(1)} dist=${dist.toFixed(1)} limit=${limit} => ${zoneName}`);
+        // -------------------------------------------
+
         let boundaryMsg = "";
 
         if (zoneName === "Town of Beginnings") {
@@ -467,6 +473,12 @@ async function main() {
 
     // 2. Zone Calculation
     const newZone = townGen.getZoneName(p[0], p[2]);
+
+    // --- STEP A DEBUG LOG (Requested) ---
+    const dist = Math.sqrt(p[0] * p[0] + p[2] * p[2]);
+    const limit = townGen.townRadius + townGen.wallThickness;
+    console.log(`[ZONE] x=${p[0].toFixed(1)} z=${p[2].toFixed(1)} dist=${dist.toFixed(1)} limit=${limit} => ${newZone}`);
+    // ------------------------------------
 
     // 3. Debounce Logic
     const t = performance.now();
