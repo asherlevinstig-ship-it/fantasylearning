@@ -177,9 +177,9 @@ async function main() {
   const noa: any = new Engine({
     debug: true,
     chunkSize: 16,           
-    chunkAddDistance: 32,    // 512 Blocks View Distance
+    chunkAddDistance: 32,    // High view distance (Supported by optimization)
     chunkRemoveDistance: 40, 
-    playerStart: [0, 50, 0], // Start high on the beacon
+    playerStart: [0, 50, 0], 
     texturePath: ""          
   });
   (window as any).noa = noa;
@@ -189,24 +189,23 @@ async function main() {
   // ------------------------------------------------------------------------
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f');
-  noa.inputs.bind('alt-fire', 'KeyR'); // Added R as secondary fire option
+  noa.inputs.bind('alt-fire', 'KeyR'); 
   
   // Debug Teleports
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
 
-  // --- UPDATED TOGGLE HUD BINDINGS (Try Z or P if F3 fails) ---
+  // HUD Toggle
   noa.inputs.bind('debug', 'F3'); 
   noa.inputs.bind('debug', 'KeyZ'); 
   noa.inputs.bind('debug', 'KeyP'); 
 
-  let showDebug = true; // State flag
+  let showDebug = true; 
 
   noa.inputs.down.on('debug', () => {
-      showDebug = !showDebug; // Toggle
+      showDebug = !showDebug; 
       console.log(`🔧 Debug HUD toggled: ${showDebug}`);
-      
       if (hudEl) {
           hudEl.style.display = showDebug ? "block" : "none";
       }
@@ -229,7 +228,7 @@ async function main() {
       noa.entities.setPosition(noa.playerEntity, pos);
     }
 
-    // 2. Update HUD Tracker (Only if enabled)
+    // 2. Update HUD Tracker
     if (showDebug) {
         const x = Math.floor(pos[0]);
         const y = Math.floor(pos[1]);
@@ -262,7 +261,7 @@ async function main() {
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
   noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] });
-  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] }); // [NEW] Dark Grey
+  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] }); // Dark Grey
 
   const AIR = 0;
   const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
@@ -270,10 +269,10 @@ async function main() {
   const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
   const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
   const BEACON = noa.registry.registerBlock(5, { material: "beacon", solid: true, opaque: true });
-  const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock", solid: true, opaque: true }); // [NEW]
+  const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock", solid: true, opaque: true });
 
   // ========================================================================
-  // 6. CLIENT-SIDE CHUNK RENDERING
+  // 6. CLIENT-SIDE CHUNK RENDERING (OPTIMIZED)
   // ========================================================================
   const chunkSize = noa.world._chunkSize;
   console.log(`📐 Chunk size: ${chunkSize}`);
@@ -283,20 +282,32 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
+      // Fast Culling
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
         return;
       }
 
-      for (let x = 0; x < chunkSize; x++) {
-        for (let z = 0; z < chunkSize; z++) {
-          for (let y = 0; y < chunkSize; y++) {
-            const globalX = chunkX + x;
-            const globalY = chunkY + y;
-            const globalZ = chunkZ + z;
+      // ⚡️ OPTIMIZATION STRATEGY C: COLUMN HOISTING
+      // We iterate X -> Z -> (Calculate Column) -> Y
+      // This prevents recalculating noise/distance for every vertical block.
 
-            const id = townGen.getBlockID(globalX, globalY, globalZ);
+      for (let x = 0; x < chunkSize; x++) {
+        const globalX = chunkX + x;
+        
+        for (let z = 0; z < chunkSize; z++) {
+          const globalZ = chunkZ + z;
+
+          // 1. Heavy Lifting: Calculate layout once per column
+          const colData = townGen.getColumnInfo(globalX, globalZ);
+
+          for (let y = 0; y < chunkSize; y++) {
+            const globalY = chunkY + y;
+            
+            // 2. Fast Resolution: Simple integer checks
+            const id = townGen.resolveBlockID(globalY, colData);
+            
             dataArr.set(x, y, z, id);
           }
         }
@@ -409,7 +420,8 @@ async function main() {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
-      // Do not allow breaking Bedrock
+      
+      // Safety: Prevent breaking Bedrock
       const id = noa.getBlock(pos[0], pos[1], pos[2]);
       if (id === BEDROCK) return;
 
