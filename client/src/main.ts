@@ -189,6 +189,7 @@ async function main() {
   // ------------------------------------------------------------------------
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f');
+  noa.inputs.bind('alt-fire', 'KeyR'); // Added R as secondary fire option
   
   // Debug Teleports
   noa.inputs.bind('home', 'KeyG'); 
@@ -260,7 +261,8 @@ async function main() {
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
-  noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] }); 
+  noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] });
+  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] }); // [NEW] Dark Grey
 
   const AIR = 0;
   const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
@@ -268,6 +270,7 @@ async function main() {
   const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
   const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
   const BEACON = noa.registry.registerBlock(5, { material: "beacon", solid: true, opaque: true });
+  const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock", solid: true, opaque: true }); // [NEW]
 
   // ========================================================================
   // 6. CLIENT-SIDE CHUNK RENDERING
@@ -406,6 +409,10 @@ async function main() {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
+      // Do not allow breaking Bedrock
+      const id = noa.getBlock(pos[0], pos[1], pos[2]);
+      if (id === BEDROCK) return;
+
       if (room.connection && room.connection.isOpen) {
         room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
       }
