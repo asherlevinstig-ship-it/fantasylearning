@@ -1,19 +1,26 @@
 import { makeNoise2D } from "open-simplex-noise";
 
-// BLOCK REGISTRY (Must match main.ts IDs)
+// BLOCK PALETTE (Must match main.ts IDs)
 const AIR = 0;
 const GRASS = 1;
 const DIRT = 2;
-const STONE_BRICK = 3; 
-const GRAVEL = 4;      
-const BEACON_RED = 5;  
-const BEDROCK = 6;     
+const STONE_BRICK = 3;
+const GRAVEL = 4;
+const BEACON_RAY = 5;
+const BEDROCK = 6;
+const WOOD_PLANKS = 7;
+const WOOD_LOG = 8;
+const GLASS = 9;
+const ROOF_STONE = 10;
 
 export interface ColumnData {
     height: number;
     surface: number;
-    isStructure: boolean;
+    isHouse: boolean; // Marks this column as part of a house footprint
+    isWall: boolean;
+    isRoad: boolean;
     isBeacon: boolean;
+    houseHash: number; // Random number for this specific house (for variety)
 }
 
 export class TownGenerator {
@@ -22,232 +29,194 @@ export class TownGenerator {
     seed: number;
     noise2D: (x: number, y: number) => number;
 
-    // OPTIMIZATION: Store packed integer coordinates (No Strings = No GC)
-    // Key format: (x & 0xFFFF) << 16 | (z & 0xFFFF)
+    // Stores house locations using packed coordinates
     private houseMap = new Set<number>();
-    
-    // ==================================================================
-    // CONFIGURATION: GIGA-CITY
-    // ==================================================================
-    public readonly townRadius = 800;    
-    public readonly wallThickness = 15;  
-    public readonly worldBottom = -16;   
-    
-    private wallHeight = 30;      
-    private baseHeight = 30; // Raised base height so we don't hit bedrock
-    private mainRoadWidth = 8;    
 
-    // OPTIMIZATION: Precomputed Squared Values
-    private readonly townRadiusSq: number;
-    private readonly wallOuterRadiusSq: number; 
-    private readonly plazaRadiusSq: number;     
+    // CONFIGURATION
+    public readonly townRadius = 800;
+    public readonly wallThickness = 15;
+    public readonly worldBottom = -16;
     
-    // Road Ring Squared Thresholds
-    private readonly ring1MinSq: number; private readonly ring1MaxSq: number; 
-    private readonly ring2MinSq: number; private readonly ring2MaxSq: number; 
-    private readonly ring3MinSq: number; private readonly ring3MaxSq: number; 
+    private baseHeight = 30; 
+    private wallHeight = 40; // Giant City Wall height
+
+    // SQUARED MATH CACHE (Optimization)
+    private readonly townRadiusSq: number;
+    private readonly wallOuterRadiusSq: number;
+    private readonly plazaRadiusSq: number;
 
     constructor(width: number, depth: number, seed: number) {
         this.width = width;
         this.depth = depth;
         this.seed = seed;
-
-        // Precompute squared math once (CPU Saver)
-        this.townRadiusSq = this.townRadius * this.townRadius;
+        
+        this.townRadiusSq = this.townRadius ** 2;
         this.wallOuterRadiusSq = (this.townRadius + this.wallThickness) ** 2;
-        this.plazaRadiusSq = 40 * 40;
-
-        // Road Rings (Squared)
-        this.ring1MinSq = 190 ** 2; this.ring1MaxSq = 210 ** 2;
-        this.ring2MinSq = 440 ** 2; this.ring2MaxSq = 460 ** 2;
-        this.ring3MinSq = 690 ** 2; this.ring3MaxSq = 710 ** 2;
+        this.plazaRadiusSq = 45 ** 2;
 
         this.noise2D = makeNoise2D(seed);
-
         this.initLayout();
     }
 
     // --------------------------------------------------------------------------
-    // 1. LAYOUT PRE-CALCULATION (Optimized)
+    // 1. LAYOUT PRE-CALCULATION
     // --------------------------------------------------------------------------
     private initLayout() {
-        console.log("📐 Calculating Giga-City Layout (Optimized)...");
-        
-        // Simple seeded RNG to replace ROT.js dependency
+        console.log("📐 Generating City Layout...");
+        // Simple linear congruential generator for reproducible layouts
         let localSeed = this.seed;
-        const random = () => {
-            localSeed = (localSeed * 9301 + 49297) % 233280;
-            return localSeed / 233280;
-        };
+        const random = () => { localSeed = (localSeed * 9301 + 49297) % 233280; return localSeed / 233280; };
 
-        const houseAttempts = 25000; 
-        const PLAZA_LIMIT_SQ = (45) ** 2; 
-
-        for (let i = 0; i < houseAttempts; i++) {
-            const r = (random() * (this.townRadius - 30)); 
+        // Attempt to place 20,000 houses
+        for (let i = 0; i < 20000; i++) {
+            const r = (random() * (this.townRadius - 30));
             const theta = random() * 2 * Math.PI;
-            
             const hx = Math.floor(r * Math.cos(theta));
             const hz = Math.floor(r * Math.sin(theta));
 
-            // Fast Checks
+            // Don't build on roads or plaza
             if (this.isRoad(hx, hz)) continue;
-            if ((hx*hx + hz*hz) < PLAZA_LIMIT_SQ) continue;
+            if ((hx*hx + hz*hz) < this.plazaRadiusSq) continue;
 
-            // Check if 9x9 plot is safe 
+            // Check neighbors for clearance (9x9 check)
             let safe = true;
             for (let px = hx - 4; px <= hx + 4; px++) {
                 for (let pz = hz - 4; pz <= hz + 4; pz++) {
-                    if (this.isRoad(px, pz)) {
-                        safe = false;
-                        break; 
+                    if (this.isRoad(px, pz) || this.houseMap.has(this.pack(px, pz))) {
+                        safe = false; break;
                     }
                 }
                 if (!safe) break;
             }
 
             if (safe) {
-                // Mark foundation (7x7 house footprint)
-                for (let px = hx - 3; px <= hx + 3; px++) {
-                    for (let pz = hz - 3; pz <= hz + 3; pz++) {
-                        // Bitwise Hash Key
-                        this.houseMap.add((px & 0xFFFF) << 16 | (pz & 0xFFFF));
+                // Place a 5x5 house footprint
+                for (let px = hx - 2; px <= hx + 2; px++) {
+                    for (let pz = hz - 2; pz <= hz + 2; pz++) {
+                        this.houseMap.add(this.pack(px, pz));
                     }
                 }
             }
         }
-        console.log(`✅ Layout Complete. Houses: ${this.houseMap.size} blocks.`);
+        console.log(`✅ City Built: ${this.houseMap.size} foundation blocks.`);
     }
 
-    // Helper: Defines where roads are located using Squared Math
-    private isRoad(x: number, z: number): boolean {
-        // 1. Main Cross Roads
-        if (Math.abs(x) <= this.mainRoadWidth || Math.abs(z) <= this.mainRoadWidth) return true;
-        
-        // 2. Ring Roads (Squared Distance Check)
-        const d2 = x*x + z*z;
-        if (d2 > this.ring1MinSq && d2 < this.ring1MaxSq) return true;
-        if (d2 > this.ring2MinSq && d2 < this.ring2MaxSq) return true;
-        if (d2 > this.ring3MinSq && d2 < this.ring3MaxSq) return true;
+    private pack(x: number, z: number) { return (x & 0xFFFF) << 16 | (z & 0xFFFF); }
 
+    private isRoad(x: number, z: number): boolean {
+        // Main Axis Roads
+        if (Math.abs(x) <= 6 || Math.abs(z) <= 6) return true;
+        
+        // Ring Roads
+        const d2 = x*x + z*z;
+        const rings = [[190, 210], [440, 460], [690, 710]];
+        for (let r of rings) {
+            if (d2 > r[0]**2 && d2 < r[1]**2) return true;
+        }
         return false;
     }
 
     // --------------------------------------------------------------------------
-    // 2. ZONE LOGIC
+    // 2. COLUMN INFO (The "Blueprint")
     // --------------------------------------------------------------------------
-    public getZoneName(x: number, z: number): string {
-        const d2 = x * x + z * z;
-        if (d2 <= this.wallOuterRadiusSq) {
-            return "Town of Beginnings";
-        }
-        return "The Wilderness";
-    }
-
-    public getHeight(x: number, z: number): number {
-        // Simple height check for teleporting safety
-        const col = this.getColumnInfo(x, z);
-        return col.height;
-    }
-
-    // --------------------------------------------------------------------------
-    // 3. COLUMN CALCULATION (Call this ONCE per X/Z)
-    // --------------------------------------------------------------------------
-    // This is where the heavy math (Noise, Sqrt, Map Lookups) happens.
     public getColumnInfo(x: number, z: number): ColumnData {
         const distSq = x*x + z*z;
-
-        // 1. BEACON CHECK
-        let isBeacon = false;
-        if (x > -2 && x < 2 && z > -2 && z < 2) {
-            isBeacon = true;
-        }
-
-        let height = 0;
+        let height = this.baseHeight;
         let surface = GRASS;
-        let isStructure = false; 
+        let isHouse = false;
+        let isWall = false;
+        let isRoad = false;
+        let isBeacon = false;
+        let houseHash = 0;
 
-        // 2. ZONE LOGIC
-        // --- ZONE 1: INSIDE THE TOWN ---
+        // 1. BEACON
+        if (Math.abs(x) < 3 && Math.abs(z) < 3) isBeacon = true;
+
+        // 2. TOWN INTERIOR
         if (distSq <= this.townRadiusSq) {
-            height = this.baseHeight; 
-            
             if (distSq <= this.plazaRadiusSq) {
-                surface = STONE_BRICK; 
-                isStructure = true;    
+                surface = STONE_BRICK; // Central Plaza
             } else if (this.isRoad(x, z)) {
-                surface = GRAVEL; 
-            } else {
-                // Bitwise lookup
-                const key = (x & 0xFFFF) << 16 | (z & 0xFFFF);
-                if (this.houseMap.has(key)) {
-                    surface = STONE_BRICK; 
-                    isStructure = true;    
-                }
+                surface = GRAVEL;
+                isRoad = true;
+            } else if (this.houseMap.has(this.pack(x, z))) {
+                isHouse = true;
+                surface = WOOD_PLANKS; // Floor of house
+                // Simple hash for variety
+                houseHash = Math.abs((x * 73856093) ^ (z * 19349663));
             }
         }
-        
-        // --- ZONE 2: GIGA CITY WALLS ---
+        // 3. CITY WALL
         else if (distSq <= this.wallOuterRadiusSq) {
-            
-            // Gates on axes - Treat as Road
-            if (Math.abs(x) <= this.mainRoadWidth + 4 || Math.abs(z) <= this.mainRoadWidth + 4) {
-                height = this.baseHeight; 
+            // Gates (Allow passing through at main axes)
+            if (Math.abs(x) <= 12 || Math.abs(z) <= 12) {
                 surface = GRAVEL;
             } else {
-                // The Wall itself
+                isWall = true;
                 height = this.baseHeight + this.wallHeight;
                 surface = STONE_BRICK;
-                isStructure = true; 
             }
         }
-
-        // --- ZONE 3: WILDERNESS ---
+        // 4. WILDERNESS
         else {
-            const scale = 0.005;
-            const n = this.noise2D(x * scale, z * scale); 
+            const n = this.noise2D(x * 0.005, z * 0.005);
             height = Math.floor(this.baseHeight + (n * 15));
         }
 
-        return { height, surface, isStructure, isBeacon };
+        return { height, surface, isHouse, isWall, isRoad, isBeacon, houseHash };
     }
 
     // --------------------------------------------------------------------------
-    // 4. BLOCK RESOLVER (Call this per Y)
+    // 3. 3D BLOCK GENERATOR (The "Builder")
     // --------------------------------------------------------------------------
     public resolveBlockID(y: number, col: ColumnData): number {
-        
-        // A. VOID SAFETY
-        if (y < this.worldBottom) return AIR;
-        if (y === 0) return BEDROCK; // Bottom is always bedrock
+        // Bedrock
+        if (y === 0) return BEDROCK;
+        if (y < 0) return AIR;
 
-        // B. BEACON (Special Case)
-        // Beacon beam is valid between y=base and y=200
-        if (col.isBeacon && y > this.baseHeight && y < 200) return BEACON_RED;
+        // Beacon Beam
+        if (col.isBeacon && y > this.baseHeight && y < 200) return BEACON_RAY;
 
-        // C. SKY
+        // HOUSE GENERATION (3D)
+        if (col.isHouse && y > col.height) {
+            const h = (y - col.height); // Height relative to floor
+            
+            // House is 5 blocks tall (1-4 walls, 5 roof)
+            if (h <= 4) {
+                // Windows? (Simple check: every few blocks, not on corners)
+                if (h === 2 && col.houseHash % 3 === 0) return GLASS;
+                // Walls
+                return WOOD_PLANKS;
+            }
+            if (h === 5) return ROOF_STONE; // Flat Roof
+            return AIR;
+        }
+
+        // Standard Ground
         if (y > col.height) return AIR;
-        
-        // D. SURFACE
         if (y === col.height) return col.surface;
 
-        // E. STRUCTURES (Walls, Plaza, Foundations)
-        // Solid stone from surface down to bedrock
-        if (col.isStructure) return STONE_BRICK;
-        
-        // F. NATURAL TERRAIN (Dirt Layer)
-        // Top 4 blocks below surface are dirt
-        if (col.height - y < 4) return DIRT;
+        // Wall Interiors
+        if (col.isWall) return STONE_BRICK;
 
-        // G. DEEP UNDERGROUND
-        return STONE_BRICK; 
+        // Underground (Dirt layer then stone)
+        if (col.height - y < 4) return DIRT;
+        return STONE_BRICK;
     }
 
-    // --------------------------------------------------------------------------
-    // 5. LEGACY WRAPPER (Required by VoxelRoom.ts)
-    // --------------------------------------------------------------------------
-    public getBlockID(x: number, y: number, z: number): number {
-        const col = this.getColumnInfo(x, z);
-        return this.resolveBlockID(y, col);
+    // Server Helper (Required by VoxelRoom.ts)
+    public getBlockID(x: number, y: number, z: number) {
+        return this.resolveBlockID(y, this.getColumnInfo(x, z));
+    }
+    
+    // Zone Helper
+    public getZoneName(x: number, z: number) {
+        const d2 = x*x + z*z;
+        return d2 <= this.wallOuterRadiusSq ? "Town of Beginnings" : "The Wilderness";
+    }
+    
+    // Teleport Helper (Used to find safe ground level)
+    public getHeight(x: number, z: number) {
+        return this.getColumnInfo(x, z).height;
     }
 }

@@ -151,7 +151,6 @@ async function main() {
   // 1. CONFIGURATION
   // ========================================================================
   const WORLD_RADIUS = 2000;
-  // REMOVED BORDER_BUFFER used for culling since we removed culling
 
   // ========================================================================
   // 2. INITIALIZE GENERATOR
@@ -202,7 +201,7 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // World Border Physics Clamp (Keeps player inside allowed area)
+    // World Border Physics Clamp
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -236,22 +235,37 @@ async function main() {
   });
 
   // ========================================================================
-  // 5. REGISTRY & CHUNKS
+  // 5. REGISTER MATERIALS & BLOCKS (MATCHES TownGenerator.ts)
   // ========================================================================
+  // Basic Materials
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
-  noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
+  noa.registry.registerMaterial("stone_brick", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
-  noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] });
   noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] });
+  
+  // New Building Materials
+  noa.registry.registerMaterial("wood_plank", { color: [0.76, 0.60, 0.42] }); // Light Wood
+  noa.registry.registerMaterial("wood_log", { color: [0.4, 0.3, 0.2] });     // Dark Wood
+  noa.registry.registerMaterial("roof", { color: [0.3, 0.3, 0.35] });       // Dark Blue-Grey
+  
+  // Transparent Materials (Alpha < 1)
+  noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
+  noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
 
   const AIR = 0;
-  const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
-  const DIRT = noa.registry.registerBlock(2, { material: "dirt", solid: true, opaque: true });
-  const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone", solid: true, opaque: true });
-  const GRAVEL = noa.registry.registerBlock(4, { material: "gravel", solid: true, opaque: true });
-  const BEACON = noa.registry.registerBlock(5, { material: "beacon", solid: true, opaque: true });
-  const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock", solid: true, opaque: true });
+  
+  // Register Blocks with IDs matching TownGenerator constants
+  const GRASS = noa.registry.registerBlock(1, { material: "grass" });
+  const DIRT = noa.registry.registerBlock(2, { material: "dirt" });
+  const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone_brick" });
+  const GRAVEL = noa.registry.registerBlock(4, { material: "gravel" });
+  const BEACON = noa.registry.registerBlock(5, { material: "beacon", opaque: false });
+  const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock" });
+  const WOOD_PLANKS = noa.registry.registerBlock(7, { material: "wood_plank" });
+  const WOOD_LOG = noa.registry.registerBlock(8, { material: "wood_log" });
+  const GLASS = noa.registry.registerBlock(9, { material: "glass", opaque: false });
+  const ROOF = noa.registry.registerBlock(10, { material: "roof" });
 
   const chunkSize = noa.world._chunkSize;
 
@@ -260,14 +274,13 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // FIX: REMOVED THE VOID CULLING LOGIC HERE
-      // Previously, we returned null if x > 2000, which made "The Wilderness" invisible.
-      // Now we just generate everything. The clamp in tick() stops the player.
-
+      // Infinite Generation (Player clamped by physics, not visual culling)
       for (let x = 0; x < chunkSize; x++) {
         const globalX = chunkX + x;
         for (let z = 0; z < chunkSize; z++) {
           const globalZ = chunkZ + z;
+          
+          // Hoisted Column Calculation
           const colData = townGen.getColumnInfo(globalX, globalZ);
 
           for (let y = 0; y < chunkSize; y++) {
