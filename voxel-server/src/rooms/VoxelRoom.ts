@@ -18,13 +18,14 @@ export class VoxelRoom extends Room<VoxelState> {
   maxClients = 32;
   state = new VoxelState();
 
-  // server-side chunk data store (authoritative, but NOT synced via Schema)
+  // OPTIMIZATION: This now stores ONLY modified chunks/blocks
+  // If a chunk is not in here, it is purely procedural (implicit).
   private chunks = new ChunkStore();
 
   // which chunk-keys each client is currently subscribed to
   private subscriptions = new Map<string, Set<string>>();
 
-  // The procedural generator
+  // The procedural generator (Source of Truth for unedited blocks)
   private townGen: TownGenerator;
 
   onCreate() {
@@ -33,9 +34,10 @@ export class VoxelRoom extends Room<VoxelState> {
     // ==================================================================
     // 1. INITIALIZE GENERATOR
     // ==================================================================
-    console.log("🏙️ Initializing Town Generator...");
-    this.townGen = new TownGenerator(4000, 4000, 12345); // Matching Client Size
-    console.log("✅ Town Generator Ready.");
+    console.log("🏙️ Initializing Town Generator (Server)...");
+    // We use the same seed/size as client so the math matches 1:1
+    this.townGen = new TownGenerator(4000, 4000, 12345);
+    console.log("✅ Server Generator Ready (Implicit Mode).");
     
     // ==================================================================
     // 2. MESSAGE HANDLERS
@@ -59,23 +61,17 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // HELPER: SERVER-SIDE CHUNK dsENERATION (Internal Memory Only)
+  // HELPER: IMPLICIT BLOCK CHECK (For Anti-Cheat/Collision)
   // ==================================================================
-  private generateChunk(cx: number, cy: number, cz: number) {
-      const chunkSize = 16; 
-      
-      for (let lx = 0; lx < chunkSize; lx++) {
-          for (let ly = 0; ly < chunkSize; ly++) {
-              for (let lz = 0; lz < chunkSize; lz++) {
-                  const wx = cx * chunkSize + lx;
-                  const wy = cy * chunkSize + ly;
-                  const wz = cz * chunkSize + lz;
-
-                  const id = this.townGen.getBlockID(wx, wy, wz);
-                  this.chunks.setBlock(wx, wy, wz, id);
-              }
-          }
+  // If we need to know what block is at X,Y,Z, we check edits first,
+  // then fall back to the generator.
+  private getWorldBlock(x: number, y: number, z: number): number {
+      // 1. Check if user edited this block (Sparse storage)
+      if (this.chunks.hasBlock(x, y, z)) {
+          return this.chunks.getBlock(x, y, z);
       }
+      // 2. If not edited, calculate it procedurally
+      return this.townGen.getBlockID(x, y, z);
   }
 
   // ==================================================================
@@ -87,6 +83,8 @@ export class VoxelRoom extends Room<VoxelState> {
 
     if (![msg.x, msg.y, msg.z].every(isFiniteNumber)) return;
 
+    // Optional: Add server-side collision validation here using this.getWorldBlock()
+    
     p.x = clamp(msg.x, -1e6, 1e6);
     p.y = clamp(msg.y, -1e6, 1e6);
     p.z = clamp(msg.z, -1e6, 1e6);
@@ -96,7 +94,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // LOGIC: CHUNK SUBSCRIPTION (Physics Only)
+  // LOGIC: CHUNK SUBSCRIPTION (Lightweight)
   // ==================================================================
   private handleSubscribe(client: Client, msg: SubscribeMsg) {
     const set = this.subscriptions.get(client.sessionId);
@@ -106,7 +104,7 @@ export class VoxelRoom extends Room<VoxelState> {
     const cx = Math.floor(msg.cx);
     const cz = Math.floor(msg.cz);
     
-    // Force load the "Gameplay Band" (-1 to 4)
+    // Only subscribe to the relevant band
     const Y_MIN = -1; 
     const Y_MAX = 4;  
 
@@ -118,13 +116,11 @@ export class VoxelRoom extends Room<VoxelState> {
           
           const key = keyFromChunk(x, y, z);
           wanted.add(key);
-
-          // Ensure chunk exists in Server Memory (For Physics/Validation)
-          // We do NOT add this to this.state anymore to prevent buffer overflow.
-          if (!this.chunks.has(key)) {
-            this.chunks.create(key); 
-            this.generateChunk(x, y, z); 
-          }
+          
+          // OPTIMIZATION: We DO NOT generate chunks here anymore.
+          // We simply track that the user is interested in this area.
+          // If there are edits in this chunk, we could send them now (delta compression),
+          // but for this implementation, we just track interest.
         }
       }
     }
@@ -133,18 +129,28 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // LOGIC: BLOCK EDITING
+  // LOGIC: BLOCK EDITING (Sparse Storage)
   // ==================================================================
   private handleSetBlock(client: Client, msg: SetBlockMsg) {
     if (![msg.x, msg.y, msg.z, msg.id].every(isFiniteNumber)) return;
 
-    // Update Internal Memory
+    // 1. Ensure chunk exists in storage (Lazy Creation)
+    const chunkKey = this.chunks.keyForBlock(msg.x, msg.y, msg.z);
+    
+    // If this is the first time ANYONE has touched this chunk, create a container for it.
+    // Note: This container should start empty, not filled with generator data.
+    if (!this.chunks.has(chunkKey)) {
+        this.chunks.create(chunkKey); 
+    }
+
+    // 2. Apply the Edit
     const ok = this.chunks.setBlock(msg.x, msg.y, msg.z, msg.id);
     if (!ok) return;
 
     const changedKeys = this.chunks.getTouchedChunkKeys(msg.x, msg.y, msg.z);
 
-    // Broadcast change to relevant players via MESSAGE (not Schema)
+    // 3. Broadcast change to relevant players
+    // This is the "Delta Update" that keeps clients in sync
     for (const [sessionId, sub] of this.subscriptions.entries()) {
       if (changedKeys.some(k => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
