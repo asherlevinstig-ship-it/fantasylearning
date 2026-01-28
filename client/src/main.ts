@@ -151,7 +151,7 @@ async function main() {
   // 1. CONFIGURATION
   // ========================================================================
   const WORLD_RADIUS = 2000;
-  const BORDER_BUFFER = 64;
+  // REMOVED BORDER_BUFFER used for culling since we removed culling
 
   // ========================================================================
   // 2. INITIALIZE GENERATOR
@@ -202,7 +202,7 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // World Border Physics Clamp
+    // World Border Physics Clamp (Keeps player inside allowed area)
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -260,11 +260,9 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
-          Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
-        noa.world.setChunkData(requestID, dataArr, null);
-        return;
-      }
+      // FIX: REMOVED THE VOID CULLING LOGIC HERE
+      // Previously, we returned null if x > 2000, which made "The Wilderness" invisible.
+      // Now we just generate everything. The clamp in tick() stops the player.
 
       for (let x = 0; x < chunkSize; x++) {
         const globalX = chunkX + x;
@@ -352,7 +350,9 @@ async function main() {
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
   noa.inputs.down.on("wild", () => {
-      noa.entities.setPosition(noa.playerEntity, [1200, 50, 1200]);
+      // Use generator to find safe height
+      const h = townGen.getHeight(1200, 1200);
+      noa.entities.setPosition(noa.playerEntity, [1200, h + 5, 1200]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
