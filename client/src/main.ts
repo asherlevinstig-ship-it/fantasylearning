@@ -17,14 +17,14 @@ const setHud = (lines: string[]) => {
             padding: "10px",
             color: "white",
             fontFamily: "monospace",
-            display: hudEl.style.display === "none" ? "none" : "block", // Preserve hidden state
+            display: hudEl.style.display === "none" ? "none" : "block",
             borderRadius: "8px"
         });
     }
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME NOTIFICATION UI (Minecraft Style - Robust)
+// HELPER: BIOME NOTIFICATION UI
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
@@ -74,7 +74,6 @@ function createBiomeUI() {
   });
 
   document.body.appendChild(biomeEl);
-  console.log("✅ Biome UI created.");
 }
 
 function showBiomeNotification(title: string, subtext: string = "") {
@@ -82,18 +81,16 @@ function showBiomeNotification(title: string, subtext: string = "") {
 
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
-  biomeCooldownUntil = t + 1200; // 1.2s cooldown
+  biomeCooldownUntil = t + 1200; 
 
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
 
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
 
-  // Animate In
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
 
-  // Animate Out after 2.5s
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -127,9 +124,6 @@ function createOverlayCanvas(opts: {
   return c;
 }
 
-// --------------------------------------------------------------------------
-// HELPER: THROTTLED RENDER LOOP
-// --------------------------------------------------------------------------
 function startThrottledRender(viewer: SkinViewer, fps = 30) {
   const frameMs = 1000 / fps;
   let last = performance.now();
@@ -176,26 +170,20 @@ async function main() {
   const noa: any = new Engine({
     debug: true,
     chunkSize: 16,           
-    chunkAddDistance: 32,    // High view distance (Supported by optimization)
+    chunkAddDistance: 32,    
     chunkRemoveDistance: 40, 
     playerStart: [0, 50, 0], 
     texturePath: ""          
   });
   (window as any).noa = noa;
 
-  // ------------------------------------------------------------------------
-  // INPUT BINDINGS
-  // ------------------------------------------------------------------------
+  // Inputs
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f');
   noa.inputs.bind('alt-fire', 'KeyR'); 
-  
-  // Debug Teleports
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
-
-  // HUD Toggle
   noa.inputs.bind('debug', 'F3'); 
   noa.inputs.bind('debug', 'KeyZ'); 
   noa.inputs.bind('debug', 'KeyP'); 
@@ -204,10 +192,7 @@ async function main() {
 
   noa.inputs.down.on('debug', () => {
       showDebug = !showDebug; 
-      console.log(`🔧 Debug HUD toggled: ${showDebug}`);
-      if (hudEl) {
-          hudEl.style.display = showDebug ? "block" : "none";
-      }
+      if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
   });
 
   // ========================================================================
@@ -217,17 +202,15 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // 1. World Border Physics Clamp
+    // World Border Physics Clamp
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
     else if (pos[2] < -WORLD_RADIUS) { pos[2] = -WORLD_RADIUS; modified = true; }
 
-    if (modified) {
-      noa.entities.setPosition(noa.playerEntity, pos);
-    }
+    if (modified) noa.entities.setPosition(noa.playerEntity, pos);
 
-    // 2. Update HUD Tracker
+    // Update HUD Tracker
     if (showDebug) {
         const x = Math.floor(pos[0]);
         const y = Math.floor(pos[1]);
@@ -235,13 +218,6 @@ async function main() {
         const dist = Math.floor(Math.sqrt(pos[0]*pos[0] + pos[2]*pos[2]));
         
         const zoneName = townGen.getZoneName(pos[0], pos[2]);
-        
-        // --- STEP A DEBUGGING (Inside Tick Loop) ---
-        // This prints to console if logic seems weird
-        // const limit = townGen.townRadius + townGen.wallThickness;
-        // console.log(`[ZONE] x=${pos[0].toFixed(1)} z=${pos[2].toFixed(1)} dist=${dist.toFixed(1)} limit=${limit} => ${zoneName}`);
-        // -------------------------------------------
-
         let boundaryMsg = "";
 
         if (zoneName === "Town of Beginnings") {
@@ -260,14 +236,14 @@ async function main() {
   });
 
   // ========================================================================
-  // 5. REGISTER MATERIALS & BLOCKS
+  // 5. REGISTRY & CHUNKS
   // ========================================================================
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone", { color: [0.5, 0.5, 0.5] });
   noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
   noa.registry.registerMaterial("beacon", { color: [1.0, 0.0, 0.0] });
-  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] }); // Dark Grey
+  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] });
 
   const AIR = 0;
   const GRASS = noa.registry.registerBlock(1, { material: "grass", solid: true, opaque: true });
@@ -277,43 +253,28 @@ async function main() {
   const BEACON = noa.registry.registerBlock(5, { material: "beacon", solid: true, opaque: true });
   const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock", solid: true, opaque: true });
 
-  // ========================================================================
-  // 6. CLIENT-SIDE CHUNK RENDERING (OPTIMIZED)
-  // ========================================================================
   const chunkSize = noa.world._chunkSize;
-  console.log(`📐 Chunk size: ${chunkSize}`);
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       const chunkX = cx * chunkSize;
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Fast Culling
       if (Math.abs(chunkX) > WORLD_RADIUS + BORDER_BUFFER || 
           Math.abs(chunkZ) > WORLD_RADIUS + BORDER_BUFFER) {
         noa.world.setChunkData(requestID, dataArr, null);
         return;
       }
 
-      // ⚡️ OPTIMIZATION STRATEGY C: COLUMN HOISTING
-      // We iterate X -> Z -> (Calculate Column) -> Y
-      // This prevents recalculating noise/distance for every vertical block.
-
       for (let x = 0; x < chunkSize; x++) {
         const globalX = chunkX + x;
-        
         for (let z = 0; z < chunkSize; z++) {
           const globalZ = chunkZ + z;
-
-          // 1. Heavy Lifting: Calculate layout once per column
           const colData = townGen.getColumnInfo(globalX, globalZ);
 
           for (let y = 0; y < chunkSize; y++) {
             const globalY = chunkY + y;
-            
-            // 2. Fast Resolution: Simple integer checks
             const id = townGen.resolveBlockID(globalY, colData);
-            
             dataArr.set(x, y, z, id);
           }
         }
@@ -322,11 +283,10 @@ async function main() {
     }
   );
 
+  // ========================================================================
+  // 6. HANDS OVERLAY
+  // ========================================================================
   const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
-
-  // ========================================================================
-  // 7. HANDS OVERLAY
-  // ========================================================================
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
     width: 400,
@@ -350,7 +310,6 @@ async function main() {
     po.skin.rightLeg.visible = false;
     po.skin.leftArm.visible = false; 
     po.skin.rightArm.visible = true;
-
     po.skin.rightArm.rotation.x = -0.4;
     po.skin.rightArm.rotation.z = 0.2;
     po.skin.rightArm.rotation.y = 0.1;
@@ -361,9 +320,6 @@ async function main() {
   handsViewer.camera.lookAt(-2, -8, 4);
   startThrottledRender(handsViewer, 30);
 
-  // ========================================================================
-  // 8. INTERACTION & ANIMATION
-  // ========================================================================
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
@@ -376,10 +332,8 @@ async function main() {
       const t = now() - start;
       const k = Math.min(1, t / duration);
       const swing = Math.sin(k * Math.PI);
-      
       skin.rightArm.rotation.x = baseX - swing * 1.2;
       skin.rightArm.rotation.z = baseZ - swing * 0.3;
-
       if (k < 1) requestAnimationFrame(animate);
       else {
         skin.rightArm.rotation.x = baseX;
@@ -389,27 +343,21 @@ async function main() {
     requestAnimationFrame(animate);
   };
 
-  // --- TELEPORT HANDLERS ---
   noa.inputs.down.on("home", () => {
-      console.log("✈️ Teleport: BEACON");
       noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
-
   noa.inputs.down.on("wall", () => {
-      console.log("✈️ Teleport: CITY WALL (800, 50, 40)");
       noa.entities.setPosition(noa.playerEntity, [800, 50, 40]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
-
   noa.inputs.down.on("wild", () => {
-      console.log("✈️ Teleport: DEEP WILDERNESS (1200, 50, 1200)");
       noa.entities.setPosition(noa.playerEntity, [1200, 50, 1200]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   // ========================================================================
-  // 9. COLYSEUS NETWORKING
+  // 7. COLYSEUS NETWORKING
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
@@ -421,16 +369,12 @@ async function main() {
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
-  // Networked Actions with Safety Check
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
-      
-      // Safety: Prevent breaking Bedrock
       const id = noa.getBlock(pos[0], pos[1], pos[2]);
       if (id === BEDROCK) return;
-
       if (room.connection && room.connection.isOpen) {
         room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
       }
@@ -450,7 +394,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 10. CHUNK SUBSCRIPTION & BIOME CHECKER LOOP
+  // 8. SERVER SYNC & ZONE CHECK
   // ========================================================================
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
@@ -459,28 +403,18 @@ async function main() {
   let pendingZone = "Unknown";
   let pendingSince = 0;
 
+  // FAST LOOP (250ms) - Subscriptions & UI Updates
   setInterval(() => {
-    // ⚠️ CRITICAL: Stop sending data if server is dead/restarting
     if (!room || !room.connection || !room.connection.isOpen) return;
 
     const p = noa.entities.getPosition(noa.playerEntity);
-    
-    // 1. Send Subscription (for Physics)
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
 
-    // 2. Zone Calculation
     const newZone = townGen.getZoneName(p[0], p[2]);
 
-    // --- STEP A DEBUG LOG (Requested) ---
-    const dist = Math.sqrt(p[0] * p[0] + p[2] * p[2]);
-    const limit = townGen.townRadius + townGen.wallThickness;
-    console.log(`[ZONE] x=${p[0].toFixed(1)} z=${p[2].toFixed(1)} dist=${dist.toFixed(1)} limit=${limit} => ${newZone}`);
-    // ------------------------------------
-
-    // 3. Debounce Logic
     const t = performance.now();
     if (newZone !== pendingZone) {
         pendingZone = newZone;
@@ -489,19 +423,33 @@ async function main() {
 
     if (pendingZone !== currentZone && (t - pendingSince) > 350) {
         console.log(`🗺️ Zone Change: ${currentZone} -> ${pendingZone}`);
-        
         if (pendingZone === "Town of Beginnings") {
             showBiomeNotification(pendingZone, "Safe Zone");
         } else {
             showBiomeNotification(pendingZone, "PvP Enabled");
         }
-        
         currentZone = pendingZone;
     }
   }, 250);
 
   // ========================================================================
-  // 11. RESIZE HANDLING
+  // 9. DEBUG: FORCED ZONE CHECKER (1000ms)
+  // ========================================================================
+  // This is the "Brutal Debug" line to verify coordinate math
+  setInterval(() => {
+    if (!noa.playerEntity) return;
+    const p = noa.entities.getPosition(noa.playerEntity);
+    const x = p[0], z = p[2];
+
+    const dist = Math.sqrt(x * x + z * z);
+    const limit = townGen.townRadius + townGen.wallThickness;
+    const zone = townGen.getZoneName(x, z);
+
+    console.log(`[ZONE DEBUG] x=${x.toFixed(1)} z=${z.toFixed(1)} dist=${dist.toFixed(1)} limit=${limit} => ${zone}`);
+  }, 1000);
+
+  // ========================================================================
+  // 10. RESIZE
   // ========================================================================
   const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
   const resizeHands = () => {
