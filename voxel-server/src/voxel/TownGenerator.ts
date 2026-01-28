@@ -242,4 +242,12 @@ export class TownGenerator {
         // G. DEEP UNDERGROUND
         return STONE_BRICK; 
     }
+
+    // --------------------------------------------------------------------------
+    // 5. LEGACY WRAPPER (Required by VoxelRoom.ts)
+    // --------------------------------------------------------------------------
+    public getBlockID(x: number, y: number, z: number): number {
+        const col = this.getColumnInfo(x, z);
+        return this.resolveBlockID(y, col);
+    }
 }
