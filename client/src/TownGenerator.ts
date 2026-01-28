@@ -1,5 +1,4 @@
-import * as ROT from "rot-js";
-import { createNoise2D } from "simplex-noise";
+import { makeNoise2D } from "open-simplex-noise";
 
 // BLOCK REGISTRY (Must match main.ts IDs)
 const AIR = 0;
@@ -10,7 +9,6 @@ const GRAVEL = 4;
 const BEACON_RED = 5;  
 const BEDROCK = 6;     
 
-// [NEW] Interface for hoisted column data
 export interface ColumnData {
     height: number;
     surface: number;
@@ -21,7 +19,8 @@ export interface ColumnData {
 export class TownGenerator {
     width: number;
     depth: number;
-    noise2D: any;
+    seed: number;
+    noise2D: (x: number, y: number) => number;
 
     // OPTIMIZATION: Store packed integer coordinates (No Strings = No GC)
     // Key format: (x & 0xFFFF) << 16 | (z & 0xFFFF)
@@ -32,10 +31,10 @@ export class TownGenerator {
     // ==================================================================
     public readonly townRadius = 800;    
     public readonly wallThickness = 15;  
-    public readonly worldBottom = -16;   // The void limit
+    public readonly worldBottom = -16;   
     
     private wallHeight = 30;      
-    private baseHeight = 10;      
+    private baseHeight = 30; // Raised base height so we don't hit bedrock
     private mainRoadWidth = 8;    
 
     // OPTIMIZATION: Precomputed Squared Values
@@ -44,18 +43,16 @@ export class TownGenerator {
     private readonly plazaRadiusSq: number;     
     
     // Road Ring Squared Thresholds
-    private readonly ring1MinSq: number; 
-    private readonly ring1MaxSq: number; 
-    private readonly ring2MinSq: number; 
-    private readonly ring2MaxSq: number; 
-    private readonly ring3MinSq: number; 
-    private readonly ring3MaxSq: number; 
+    private readonly ring1MinSq: number; private readonly ring1MaxSq: number; 
+    private readonly ring2MinSq: number; private readonly ring2MaxSq: number; 
+    private readonly ring3MinSq: number; private readonly ring3MaxSq: number; 
 
     constructor(width: number, depth: number, seed: number) {
         this.width = width;
         this.depth = depth;
+        this.seed = seed;
 
-        // Precompute squared math once
+        // Precompute squared math once (CPU Saver)
         this.townRadiusSq = this.townRadius * this.townRadius;
         this.wallOuterRadiusSq = (this.townRadius + this.wallThickness) ** 2;
         this.plazaRadiusSq = 40 * 40;
@@ -65,8 +62,7 @@ export class TownGenerator {
         this.ring2MinSq = 440 ** 2; this.ring2MaxSq = 460 ** 2;
         this.ring3MinSq = 690 ** 2; this.ring3MaxSq = 710 ** 2;
 
-        ROT.RNG.setSeed(seed);
-        this.noise2D = createNoise2D(() => ROT.RNG.getUniform());
+        this.noise2D = makeNoise2D(seed);
 
         this.initLayout();
     }
@@ -77,12 +73,19 @@ export class TownGenerator {
     private initLayout() {
         console.log("📐 Calculating Giga-City Layout (Optimized)...");
         
-        const houseAttempts = 15000; 
-        const PLAZA_LIMIT_SQ = (40 + 5) ** 2; 
+        // Simple seeded RNG to replace ROT.js dependency
+        let localSeed = this.seed;
+        const random = () => {
+            localSeed = (localSeed * 9301 + 49297) % 233280;
+            return localSeed / 233280;
+        };
+
+        const houseAttempts = 25000; 
+        const PLAZA_LIMIT_SQ = (45) ** 2; 
 
         for (let i = 0; i < houseAttempts; i++) {
-            const r = (ROT.RNG.getUniform() * (this.townRadius - 30)); 
-            const theta = ROT.RNG.getUniform() * 2 * Math.PI;
+            const r = (random() * (this.townRadius - 30)); 
+            const theta = random() * 2 * Math.PI;
             
             const hx = Math.floor(r * Math.cos(theta));
             const hz = Math.floor(r * Math.sin(theta));
@@ -104,7 +107,7 @@ export class TownGenerator {
             }
 
             if (safe) {
-                // Mark foundation 
+                // Mark foundation (7x7 house footprint)
                 for (let px = hx - 3; px <= hx + 3; px++) {
                     for (let pz = hz - 3; pz <= hz + 3; pz++) {
                         // Bitwise Hash Key
@@ -133,12 +136,18 @@ export class TownGenerator {
     // --------------------------------------------------------------------------
     // 2. ZONE LOGIC
     // --------------------------------------------------------------------------
-    public getZoneName(x: number, z: number): "Town of Beginnings" | "The Wilderness" {
+    public getZoneName(x: number, z: number): string {
         const d2 = x * x + z * z;
         if (d2 <= this.wallOuterRadiusSq) {
             return "Town of Beginnings";
         }
         return "The Wilderness";
+    }
+
+    public getHeight(x: number, z: number): number {
+        // Simple height check for teleporting safety
+        const col = this.getColumnInfo(x, z);
+        return col.height;
     }
 
     // --------------------------------------------------------------------------
@@ -150,7 +159,7 @@ export class TownGenerator {
 
         // 1. BEACON CHECK
         let isBeacon = false;
-        if (x > -3 && x < 3 && z > -3 && z < 3) {
+        if (x > -2 && x < 2 && z > -2 && z < 2) {
             isBeacon = true;
         }
 
@@ -185,7 +194,6 @@ export class TownGenerator {
             if (Math.abs(x) <= this.mainRoadWidth + 4 || Math.abs(z) <= this.mainRoadWidth + 4) {
                 height = this.baseHeight; 
                 surface = GRAVEL;
-                // isStructure = false (Implicit)
             } else {
                 // The Wall itself
                 height = this.baseHeight + this.wallHeight;
@@ -196,8 +204,9 @@ export class TownGenerator {
 
         // --- ZONE 3: WILDERNESS ---
         else {
-            const n = this.noise2D(x / 200, z / 200); 
-            height = Math.floor((this.baseHeight - 5) + (n + 1) * 20);
+            const scale = 0.005;
+            const n = this.noise2D(x * scale, z * scale); 
+            height = Math.floor(this.baseHeight + (n * 15));
         }
 
         return { height, surface, isStructure, isBeacon };
@@ -206,16 +215,15 @@ export class TownGenerator {
     // --------------------------------------------------------------------------
     // 4. BLOCK RESOLVER (Call this per Y)
     // --------------------------------------------------------------------------
-    // This uses the pre-calculated column info to decide the block ID instantly.
     public resolveBlockID(y: number, col: ColumnData): number {
         
         // A. VOID SAFETY
         if (y < this.worldBottom) return AIR;
-        if (y === this.worldBottom) return BEDROCK;
+        if (y === 0) return BEDROCK; // Bottom is always bedrock
 
         // B. BEACON (Special Case)
-        // Beacon beam is valid between y=1 and y=80
-        if (col.isBeacon && y <= 80 && y > 0) return BEACON_RED;
+        // Beacon beam is valid between y=base and y=200
+        if (col.isBeacon && y > this.baseHeight && y < 200) return BEACON_RED;
 
         // C. SKY
         if (y > col.height) return AIR;
@@ -229,17 +237,9 @@ export class TownGenerator {
         
         // F. NATURAL TERRAIN (Dirt Layer)
         // Top 4 blocks below surface are dirt
-        if (col.height - y < 5) return DIRT;
+        if (col.height - y < 4) return DIRT;
 
         // G. DEEP UNDERGROUND
         return STONE_BRICK; 
-    }
-
-    // --------------------------------------------------------------------------
-    // 5. LEGACY WRAPPER (For Server/Fallback)
-    // --------------------------------------------------------------------------
-    public getBlockID(x: number, y: number, z: number): number {
-        const col = this.getColumnInfo(x, z);
-        return this.resolveBlockID(y, col);
     }
 }
