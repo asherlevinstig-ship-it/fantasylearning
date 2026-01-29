@@ -9,14 +9,12 @@ export class InventoryUI {
     private slots: HTMLDivElement[] = [];
 
     constructor() {
-        // 1. Create Backdrop
         this.backdrop = document.createElement("div");
         Object.assign(this.backdrop.style, {
             position: "fixed", top: "0", left: "0", width: "100vw", height: "100vh",
             backgroundColor: "rgba(0, 0, 0, 0.75)", display: "none", zIndex: "2000"
         });
 
-        // 2. Create Window
         this.window = document.createElement("div");
         Object.assign(this.window.style, {
             position: "absolute", top: "50%", left: "50%",
@@ -27,12 +25,10 @@ export class InventoryUI {
         });
         this.backdrop.appendChild(this.window);
 
-        // 3. Create Sections
         this.createArmorSection();
-        this.createMainSection(); // 9x3 Grid
-        this.createHotbarSection(); // 1x9 Grid
+        this.createMainSection();
+        this.createHotbarSection();
 
-        // 4. Create Floating Cursor Item
         this.cursorItem = document.createElement("div");
         Object.assign(this.cursorItem.style, {
             position: "fixed", width: "32px", height: "32px", pointerEvents: "none",
@@ -41,7 +37,6 @@ export class InventoryUI {
         document.body.appendChild(this.cursorItem);
         document.body.appendChild(this.backdrop);
 
-        // 5. Events
         document.addEventListener("mousemove", (e) => {
             this.cursorItem.style.left = `${e.clientX + 10}px`;
             this.cursorItem.style.top = `${e.clientY + 10}px`;
