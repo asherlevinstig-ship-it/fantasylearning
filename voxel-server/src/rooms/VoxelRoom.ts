@@ -3,27 +3,8 @@ import { VoxelState } from "./state/VoxelState";
 import { PlayerState } from "./state/PlayerState";
 
 import { keyFromChunk } from "../voxel/chunkKey";
-// FIX: Lowercase "chunkStore" to match the actual filename on your server
 import { ChunkStore } from "../voxel/chunkStore"; 
 import { TownGenerator } from "../voxel/TownGenerator";
-
-// ----------------------------------------------------------------------
-// 1. SERVER-SIDE BLOCK IDs
-// ----------------------------------------------------------------------
-// These must match the IDs registered in the Client's main.ts
-const SERVER_IDS = {
-  AIR: 0,
-  GRASS: 1,
-  DIRT: 2,
-  STONE_BRICK: 3,
-  GRAVEL: 4,
-  BEACON_RAY: 5,
-  BEDROCK: 6,
-  WOOD_PLANKS: 7,
-  WOOD_LOG: 8,
-  GLASS: 9,
-  ROOF_STONE: 10,
-};
 
 // ----------------------------------------------------------------------
 // MESSAGE TYPES
@@ -49,17 +30,18 @@ export class VoxelRoom extends Room<VoxelState> {
     this.setPatchRate(20); 
 
     // ==================================================================
-    // 2. INITIALIZE GENERATOR
+    // 1. INITIALIZE GENERATOR
     // ==================================================================
     console.log("🏙️ Initializing Town Generator (Server)...");
     
-    // Pass SERVER_IDS as the 4th argument to prevent "grey world" bugs
-    this.townGen = new TownGenerator(4000, 4000, 12345, SERVER_IDS);
+    // FIX: Using only 3 arguments. 
+    // The generator now imports BLOCKS internally from 'blocks.ts'.
+    this.townGen = new TownGenerator(4000, 4000, 12345);
     
     console.log("✅ Server Generator Ready (Implicit Mode).");
     
     // ==================================================================
-    // 3. MESSAGE HANDLERS
+    // 2. MESSAGE HANDLERS
     // ==================================================================
     this.onMessage("move", (client, msg: MoveMsg) => this.handleMove(client, msg));
     this.onMessage("subscribeChunks", (client, msg: SubscribeMsg) => this.handleSubscribe(client, msg));
@@ -163,7 +145,6 @@ export class VoxelRoom extends Room<VoxelState> {
 
     // 4. Broadcast change to subscribed players
     for (const [sessionId, sub] of this.subscriptions.entries()) {
-      // FIX: Explicitly type 'k' as string to satisfy TypeScript strictness
       if (changedKeys.some((k: string) => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
         c?.send("blockUpdate", { x: msg.x, y: msg.y, z: msg.z, id: msg.id });
