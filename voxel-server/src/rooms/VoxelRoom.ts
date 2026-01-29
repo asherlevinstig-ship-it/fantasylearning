@@ -3,12 +3,14 @@ import { VoxelState } from "./state/VoxelState";
 import { PlayerState } from "./state/PlayerState";
 
 import { keyFromChunk } from "../voxel/chunkKey";
-import { ChunkStore } from "../voxel/ChunkStore"; // Ensure casing matches filename
+// FIX: Lowercase "chunkStore" to match the actual filename on your server
+import { ChunkStore } from "../voxel/chunkStore"; 
 import { TownGenerator } from "../voxel/TownGenerator";
 
 // ----------------------------------------------------------------------
-// 1. SERVER-SIDE BLOCK IDs (Must match Client IDs)
+// 1. SERVER-SIDE BLOCK IDs
 // ----------------------------------------------------------------------
+// These must match the IDs registered in the Client's main.ts
 const SERVER_IDS = {
   AIR: 0,
   GRASS: 1,
@@ -34,10 +36,10 @@ export class VoxelRoom extends Room<VoxelState> {
   maxClients = 32;
   state = new VoxelState();
 
-  // OPTIMIZATION: This now stores ONLY modified chunks/blocks
+  // OPTIMIZATION: Sparse storage (only stores modified blocks)
   private chunks = new ChunkStore();
 
-  // which chunk-keys each client is currently subscribed to
+  // Tracks which chunk-keys each client is currently interested in
   private subscriptions = new Map<string, Set<string>>();
 
   // The procedural generator (Source of Truth for unedited blocks)
@@ -47,11 +49,11 @@ export class VoxelRoom extends Room<VoxelState> {
     this.setPatchRate(20); 
 
     // ==================================================================
-    // 2. INITIALIZE GENERATOR WITH IDs
+    // 2. INITIALIZE GENERATOR
     // ==================================================================
     console.log("🏙️ Initializing Town Generator (Server)...");
     
-    // FIX: Pass SERVER_IDS as the 4th argument!
+    // Pass SERVER_IDS as the 4th argument to prevent "grey world" bugs
     this.townGen = new TownGenerator(4000, 4000, 12345, SERVER_IDS);
     
     console.log("✅ Server Generator Ready (Implicit Mode).");
@@ -65,10 +67,13 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   onJoin(client: Client) {
+    // Create player state
     this.state.players.set(client.sessionId, new PlayerState());
+    
+    // Initialize empty subscription set
     this.subscriptions.set(client.sessionId, new Set());
 
-    // Send world settings 
+    // Send world settings to the new client
     client.send("worldInfo", { seed: 12345, chunkSize: 16, height: 256 });
   }
 
@@ -78,7 +83,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // HELPER: IMPLICIT BLOCK CHECK
+  // HELPER: IMPLICIT BLOCK CHECK (Anti-Cheat / Collision)
   // ==================================================================
   private getWorldBlock(x: number, y: number, z: number): number {
       // 1. Check if user edited this block (Sparse storage)
@@ -98,6 +103,7 @@ export class VoxelRoom extends Room<VoxelState> {
 
     if (![msg.x, msg.y, msg.z].every(isFiniteNumber)) return;
 
+    // Sanity check coordinates
     p.x = clamp(msg.x, -1e6, 1e6);
     p.y = clamp(msg.y, -1e6, 1e6);
     p.z = clamp(msg.z, -1e6, 1e6);
@@ -117,7 +123,7 @@ export class VoxelRoom extends Room<VoxelState> {
     const cx = Math.floor(msg.cx);
     const cz = Math.floor(msg.cz);
     
-    // Only subscribe to the relevant band
+    // Only subscribe to the relevant vertical band
     const Y_MIN = -1; 
     const Y_MAX = 4;  
 
@@ -141,22 +147,24 @@ export class VoxelRoom extends Room<VoxelState> {
   private handleSetBlock(client: Client, msg: SetBlockMsg) {
     if (![msg.x, msg.y, msg.z, msg.id].every(isFiniteNumber)) return;
 
-    // 1. Ensure chunk exists in storage (Lazy Creation)
+    // 1. Ensure chunk container exists (Lazy Creation)
     const chunkKey = this.chunks.keyForBlock(msg.x, msg.y, msg.z);
     
     if (!this.chunks.has(chunkKey)) {
         this.chunks.create(chunkKey); 
     }
 
-    // 2. Apply the Edit
+    // 2. Apply the Edit to storage
     const ok = this.chunks.setBlock(msg.x, msg.y, msg.z, msg.id);
     if (!ok) return;
 
+    // 3. Determine who needs to know about this change
     const changedKeys = this.chunks.getTouchedChunkKeys(msg.x, msg.y, msg.z);
 
-    // 3. Broadcast change to relevant players
+    // 4. Broadcast change to subscribed players
     for (const [sessionId, sub] of this.subscriptions.entries()) {
-      if (changedKeys.some(k => sub.has(k))) {
+      // FIX: Explicitly type 'k' as string to satisfy TypeScript strictness
+      if (changedKeys.some((k: string) => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
         c?.send("blockUpdate", { x: msg.x, y: msg.y, z: msg.z, id: msg.id });
       }
@@ -165,7 +173,7 @@ export class VoxelRoom extends Room<VoxelState> {
 }
 
 // ==================================================================
-// INLINED VALIDATION HELPERS (To prevent missing module errors)
+// INLINED VALIDATION HELPERS
 // ==================================================================
 function isFiniteNumber(val: any): val is number {
   return typeof val === "number" && isFinite(val);

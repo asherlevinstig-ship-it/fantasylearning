@@ -1,11 +1,11 @@
 import { makeNoise2D } from "open-simplex-noise";
 
 // --------------------------------------------------------------------------
-// 1. INTERFACES (Exported so main.ts can use them)
+// 1. INTERFACES (Must be exported for main.ts and VoxelRoom.ts)
 // --------------------------------------------------------------------------
 
-// The generator expects these IDs to be passed in from main.ts or VoxelRoom.ts.
-// This ensures the generator uses the exact IDs registered by the engine.
+// The generator expects these IDs to be passed in from the engine/server.
+// This ensures the generator uses the exact IDs registered by the system.
 export interface BlockIDs {
     AIR: number;
     GRASS: number;
