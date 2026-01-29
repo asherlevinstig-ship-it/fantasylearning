@@ -3,8 +3,8 @@ import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
-import { inventoryStore } from "./store/inventory"; // NEW: Inventory Logic
-import { HotbarUI } from "./ui/HotbarUI";           // NEW: Visuals
+import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
+import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
@@ -38,58 +38,28 @@ function createBiomeUI() {
   biomeEl = document.createElement("div");
   biomeTitleEl = document.createElement("div");
   biomeSubEl = document.createElement("div");
-
-  biomeTitleEl.textContent = "";
-  biomeSubEl.textContent = "";
-
   biomeEl.appendChild(biomeTitleEl);
   biomeEl.appendChild(biomeSubEl);
 
   Object.assign(biomeEl.style, {
-    position: "fixed",
-    top: "18%",
-    left: "50%",
-    transform: "translateX(-50%) translateY(-10px)",
-    textAlign: "center",
-    fontFamily: "Impact, system-ui, sans-serif",
-    pointerEvents: "none",
-    opacity: "0",
-    transition: "opacity 300ms ease, transform 300ms ease",
-    zIndex: "9999",
-    userSelect: "none",
-    whiteSpace: "nowrap",
+    position: "fixed", top: "18%", left: "50%", transform: "translateX(-50%) translateY(-10px)",
+    textAlign: "center", fontFamily: "Impact, system-ui, sans-serif", pointerEvents: "none",
+    opacity: "0", transition: "opacity 300ms ease, transform 300ms ease", zIndex: "9999", userSelect: "none", whiteSpace: "nowrap",
   });
-
-  Object.assign(biomeTitleEl.style, {
-    fontSize: "48px",
-    color: "#FFD700",
-    textShadow: "4px 4px 0px #000",
-    lineHeight: "1",
-  });
-
-  Object.assign(biomeSubEl.style, {
-    marginTop: "6px",
-    fontSize: "22px",
-    color: "#ffffff",
-    textShadow: "3px 3px 0px #000",
-    opacity: "0.95",
-  });
-
+  Object.assign(biomeTitleEl.style, { fontSize: "48px", color: "#FFD700", textShadow: "4px 4px 0px #000", lineHeight: "1" });
+  Object.assign(biomeSubEl.style, { marginTop: "6px", fontSize: "22px", color: "#ffffff", textShadow: "3px 3px 0px #000", opacity: "0.95" });
   document.body.appendChild(biomeEl);
 }
 
 function showBiomeNotification(title: string, subtext: string = "") {
   if (!biomeEl || !biomeTitleEl || !biomeSubEl) return;
-
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
   biomeCooldownUntil = t + 1200; 
 
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
-
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
-
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
 
@@ -101,22 +71,12 @@ function showBiomeNotification(title: string, subtext: string = "") {
 }
 
 // --------------------------------------------------------------------------
-// HELPER: OVERLAY CANVAS
+// HELPER: OVERLAY CANVAS (Hands)
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: { id: string; width: number; height: number; style: Partial<CSSStyleDeclaration>; }) {
   const c = document.createElement("canvas");
-  c.id = opts.id;
-  c.width = opts.width;
-  c.height = opts.height;
-  
-  Object.assign(c.style, {
-    position: "fixed",
-    pointerEvents: "none",
-    imageRendering: "pixelated",
-    zIndex: "100",
-    ...opts.style,
-  });
-  
+  c.id = opts.id; c.width = opts.width; c.height = opts.height;
+  Object.assign(c.style, { position: "fixed", pointerEvents: "none", imageRendering: "pixelated", zIndex: "100", ...opts.style });
   document.body.appendChild(c);
   return c;
 }
@@ -125,19 +85,17 @@ function startThrottledRender(viewer: SkinViewer, fps = 30) {
   const frameMs = 1000 / fps;
   let last = performance.now();
   const loop = (t: number) => {
-    if (t - last >= frameMs) {
-      viewer.render();
-      last = t;
-    }
+    if (t - last >= frameMs) { viewer.render(); last = t; }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
 }
 
-function now() {
-  return performance.now();
-}
+function now() { return performance.now(); }
 
+// --------------------------------------------------------------------------
+// MAIN APPLICATION
+// --------------------------------------------------------------------------
 async function main() {
   console.log("🚀 Starting Client...");
   setHud(["Initializing Engine..."]);
@@ -147,19 +105,14 @@ async function main() {
   // 1. SETUP NOA ENGINE
   // ========================================================================
   const noa: any = new Engine({
-    debug: true,
-    chunkSize: 16,
-    chunkAddDistance: 32,    
-    chunkRemoveDistance: 40,
-    playerStart: [0, 50, 0],
-    texturePath: ""
+    debug: true, chunkSize: 16, chunkAddDistance: 32, chunkRemoveDistance: 40,
+    playerStart: [0, 50, 0], texturePath: ""
   });
   (window as any).noa = noa;
 
   // ========================================================================
   // 2. REGISTER BLOCKS & MATERIALS
   // ========================================================================
-  // Define Materials
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
   noa.registry.registerMaterial("stone_brick", { color: [0.5, 0.5, 0.5] });
@@ -171,7 +124,6 @@ async function main() {
   noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
   noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
 
-  // Register Blocks using Shared IDs from blocks.ts
   noa.registry.registerBlock(BLOCKS.GRASS, { material: "grass" });
   noa.registry.registerBlock(BLOCKS.DIRT, { material: "dirt" });
   noa.registry.registerBlock(BLOCKS.STONE_BRICK, { material: "stone_brick" });
@@ -189,7 +141,6 @@ async function main() {
   // 3. INITIALIZE GENERATOR
   // ========================================================================
   console.time("GenInit");
-  // Generator imports BLOCKS internally, so we only pass map config
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
@@ -197,25 +148,33 @@ async function main() {
   const WORLD_RADIUS = 2000;
 
   // ========================================================================
-  // 4. INITIALIZE UI & INPUTS
+  // 4. UI & INPUTS
   // ========================================================================
-  new HotbarUI(); // Initialize the Hotbar visual
+  new HotbarUI(); // Mounts the Hotbar Visuals
 
+  // Standard Inputs
   noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
   noa.inputs.bind('alt-fire', 'KeyR'); 
   noa.inputs.bind('home', 'KeyG'); noa.inputs.bind('wall', 'KeyH'); noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
-  noa.inputs.bind('scan', 'KeyX');
+  noa.inputs.bind('scan', 'KeyX'); // Scanner Tool
+  noa.inputs.bind('fill_inv', 'KeyI'); // Debug Inventory
 
-  // Bind Keys 1-9 for Hotbar Selection
+  let showDebug = true; 
+  noa.inputs.down.on('debug', () => {
+      showDebug = !showDebug; 
+      if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
+  });
+
+  // --- INVENTORY CONTROLS ---
+
+  // 1. Hotbar Selection (1-9)
   for (let i = 1; i <= 9; i++) {
       noa.inputs.bind(`slot${i}`, `Digit${i}`);
-      noa.inputs.down.on(`slot${i}`, () => {
-          inventoryStore.getState().selectSlot(i - 1);
-      });
+      noa.inputs.down.on(`slot${i}`, () => inventoryStore.getState().selectSlot(i - 1));
   }
 
-  // Bind Mouse Wheel for Hotbar Scrolling
+  // 2. Mouse Wheel Scroll
   window.addEventListener("wheel", (e) => {
       const current = inventoryStore.getState().selectedSlot;
       const dir = Math.sign(e.deltaY);
@@ -225,10 +184,46 @@ async function main() {
       inventoryStore.getState().selectSlot(next);
   });
 
-  let showDebug = true; 
-  noa.inputs.down.on('debug', () => {
-      showDebug = !showDebug; 
-      if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
+  // 3. Toggle Inventory ('E')
+  window.addEventListener("keydown", (e) => {
+    if (document.activeElement?.tagName === "INPUT") return; // Don't trigger if typing
+    if (e.code === "KeyE") {
+        inventoryStore.getState().toggleOpen();
+        e.preventDefault();
+    }
+  });
+
+  // 4. Debug: Fill Inventory ('I')
+  noa.inputs.down.on('fill_inv', () => {
+      console.log("🎒 Refilling Inventory...");
+      const { setSlot } = inventoryStore.getState();
+      setSlot(0, BLOCKS.GRASS, 64);
+      setSlot(1, BLOCKS.DIRT, 64);
+      setSlot(2, BLOCKS.STONE_BRICK, 64);
+      setSlot(3, BLOCKS.WOOD_PLANKS, 64);
+      setSlot(4, BLOCKS.WOOD_LOG, 64);
+      setSlot(5, BLOCKS.GRAVEL, 64);
+      setSlot(6, BLOCKS.GLASS, 64);
+      setSlot(7, BLOCKS.ROOF_STONE, 64);
+      setSlot(8, BLOCKS.BEACON_RAY, 64);
+  });
+
+  // --- INVENTORY STATE HANDLING (Mouse/Movement) ---
+  inventoryStore.subscribe((state) => {
+      if (state.isOpen) {
+          // Open: Stop movement, Unlock mouse
+          noa.inputs.state.forward = false;
+          noa.inputs.state.backward = false;
+          noa.inputs.state.left = false;
+          noa.inputs.state.right = false;
+          noa.inputs.state.jump = false;
+          noa.inputs.state.fire = false;
+          
+          document.exitPointerLock();
+      } else {
+          // Closed: Re-lock mouse
+          noa.container.canvas.requestPointerLock();
+      }
   });
 
   // ========================================================================
@@ -284,17 +279,11 @@ async function main() {
             const globalX = chunkX + x;
             for (let z = 0; z < chunkSize; z++) {
                 const globalZ = chunkZ + z;
-                
-                // 1. Get Column Data
                 const colData = townGen.getColumnInfo(globalX, globalZ);
 
                 for (let y = 0; y < chunkSize; y++) {
                     const globalY = chunkY + y;
-                    
-                    // 2. Resolve Block ID
                     const id = townGen.resolveBlockID(globalY, colData);
-                    
-                    // 3. Set Block (Safe Number Check)
                     const safeID = (typeof id === 'number' && isFinite(id)) ? id : BLOCKS.GRASS;
                     dataArr.set(x, y, z, safeID);
                 }
@@ -361,7 +350,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 9. COLYSEUS NETWORKING & BLOCK INTERACTION
+  // 9. COLYSEUS NETWORKING & GAMEPLAY
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
@@ -373,42 +362,58 @@ async function main() {
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
-  // LEFT CLICK: Break Block
+  // --- BLOCK BREAKING (MINE TO INVENTORY) ---
   noa.inputs.down.on("fire", () => {
+    // If inventory open, ignore click
+    if (inventoryStore.getState().isOpen) return;
+
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
       const id = noa.getBlock(pos[0], pos[1], pos[2]);
-      if (id === BLOCKS.BEDROCK) return;
-      if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.AIR });
+
+      // 1. Validation
+      if (id === BLOCKS.BEDROCK || id === BLOCKS.AIR) return;
+
+      // 2. Add to Inventory
+      const added = inventoryStore.getState().addItem(id, 1);
+      
+      if (added) {
+          // 3. Remove from world if picked up
+          if (room.connection && room.connection.isOpen) {
+            room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.AIR });
+          }
+          noa.setBlock(BLOCKS.AIR, pos[0], pos[1], pos[2]);
+      } else {
+          console.log("⚠️ Inventory Full!");
       }
-      noa.setBlock(BLOCKS.AIR, pos[0], pos[1], pos[2]);
     }
   });
 
-  // RIGHT CLICK: Place Block (USING ZUSTAND INVENTORY)
+  // --- BLOCK PLACING (FROM HOTBAR) ---
   noa.inputs.down.on("alt-fire", () => {
+    // If inventory open, ignore click
+    if (inventoryStore.getState().isOpen) return;
+
     swingHand();
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
       
-      // 1. Get selected item from store
+      // 1. Get Selected Item
       const item = inventoryStore.getState().getSelectedItem();
 
       // 2. Validate
-      if (!item || item.count <= 0) {
-          console.log("⚠️ No item selected or slot empty.");
-          return;
-      }
+      if (!item || item.count <= 0) return;
 
-      // 3. Network Update
+      // 3. Place Block
       if (room.connection && room.connection.isOpen) {
         room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: item.id });
       }
-      
-      // 4. Local Update
       noa.setBlock(item.id, pos[0], pos[1], pos[2]);
+
+      // 4. Consume Item (Client-Side Prediction)
+      // For now, infinite items in creative. Uncomment to consume:
+      // inventoryStore.getState().setSlot(inventoryStore.getState().selectedSlot, item.id, item.count - 1);
     }
   });
 
@@ -439,7 +444,6 @@ async function main() {
     }
   }, 250);
 
-  // Debug Log (Slow)
   setInterval(() => {
     if (!noa.playerEntity) return;
     const p = noa.entities.getPosition(noa.playerEntity);
@@ -457,15 +461,12 @@ async function main() {
     const pz = Math.floor(p[2]);
 
     console.group(`🔍 SCANNING AREA AROUND [${px}, ${py}, ${pz}]`);
-    console.log(`Chunk Coordinates: [${Math.floor(px/16)}, ${Math.floor(py/16)}, ${Math.floor(pz/16)}]`);
     console.log(`Zone Logic Says: ${townGen.getZoneName(px, pz)}`);
 
     const radius = 5;
     const groundY = py - 1;
 
     console.log(`\n--- GROUND MAP (Y=${groundY}) ---`);
-    console.log("Legend: [.]=Air [G]=Grass [S]=Stone [#]=Other\n");
-
     let visualMap = "";
 
     for (let z = pz - radius; z <= pz + radius; z++) {
@@ -489,7 +490,6 @@ async function main() {
         visualMap += rowStr + `  (z=${z})\n`;
     }
     console.log(visualMap);
-    console.log(`Key: @ = You, ! = ERROR (Sync Mismatch)`);
     console.groupEnd();
   });
 
