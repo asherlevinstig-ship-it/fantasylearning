@@ -3,12 +3,13 @@ import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
+import { inventoryStore } from "./store/inventory"; // NEW: Inventory Logic
+import { HotbarUI } from "./ui/HotbarUI";           // NEW: Visuals
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
-
 const setHud = (lines: string[]) => { 
     if (hudEl) {
         hudEl.innerHTML = lines.join("<br>");
@@ -196,14 +197,33 @@ async function main() {
   const WORLD_RADIUS = 2000;
 
   // ========================================================================
-  // 4. INPUTS
+  // 4. INITIALIZE UI & INPUTS
   // ========================================================================
+  new HotbarUI(); // Initialize the Hotbar visual
+
   noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
   noa.inputs.bind('alt-fire', 'KeyR'); 
   noa.inputs.bind('home', 'KeyG'); noa.inputs.bind('wall', 'KeyH'); noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
-  // NEW: Scanner Tool
   noa.inputs.bind('scan', 'KeyX');
+
+  // Bind Keys 1-9 for Hotbar Selection
+  for (let i = 1; i <= 9; i++) {
+      noa.inputs.bind(`slot${i}`, `Digit${i}`);
+      noa.inputs.down.on(`slot${i}`, () => {
+          inventoryStore.getState().selectSlot(i - 1);
+      });
+  }
+
+  // Bind Mouse Wheel for Hotbar Scrolling
+  window.addEventListener("wheel", (e) => {
+      const current = inventoryStore.getState().selectedSlot;
+      const dir = Math.sign(e.deltaY);
+      let next = current + dir;
+      if (next > 8) next = 0;
+      if (next < 0) next = 8;
+      inventoryStore.getState().selectSlot(next);
+  });
 
   let showDebug = true; 
   noa.inputs.down.on('debug', () => {
@@ -246,19 +266,16 @@ async function main() {
   });
 
   // ========================================================================
-  // 6. CHUNK LOADING (CRITICAL FIX)
+  // 6. CHUNK LOADING
   // ========================================================================
   const chunkSize = noa.world._chunkSize;
   
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       try {
-        // FIX: The engine passed us WORLD COORDINATES (e.g., 1200) based on logs.
-        // We do NOT multiply by chunkSize.
         const chunkX = cx; 
         const chunkY = cy;
         const chunkZ = cz;
 
-        // Sampling Logger
         if (Math.random() < 0.01) { 
              console.log(`[ChunkGen] Request: cx=${cx} cy=${cy} cz=${cz}`);
         }
@@ -344,7 +361,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 9. COLYSEUS NETWORKING
+  // 9. COLYSEUS NETWORKING & BLOCK INTERACTION
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
@@ -356,6 +373,7 @@ async function main() {
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
+  // LEFT CLICK: Break Block
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
@@ -369,14 +387,28 @@ async function main() {
     }
   });
 
+  // RIGHT CLICK: Place Block (USING ZUSTAND INVENTORY)
   noa.inputs.down.on("alt-fire", () => {
     swingHand();
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
-      if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.GRASS });
+      
+      // 1. Get selected item from store
+      const item = inventoryStore.getState().getSelectedItem();
+
+      // 2. Validate
+      if (!item || item.count <= 0) {
+          console.log("⚠️ No item selected or slot empty.");
+          return;
       }
-      noa.setBlock(BLOCKS.GRASS, pos[0], pos[1], pos[2]);
+
+      // 3. Network Update
+      if (room.connection && room.connection.isOpen) {
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: item.id });
+      }
+      
+      // 4. Local Update
+      noa.setBlock(item.id, pos[0], pos[1], pos[2]);
     }
   });
 
@@ -428,7 +460,6 @@ async function main() {
     console.log(`Chunk Coordinates: [${Math.floor(px/16)}, ${Math.floor(py/16)}, ${Math.floor(pz/16)}]`);
     console.log(`Zone Logic Says: ${townGen.getZoneName(px, pz)}`);
 
-    // We scan a 10x10 area at the player's feet (y - 1)
     const radius = 5;
     const groundY = py - 1;
 
@@ -440,14 +471,9 @@ async function main() {
     for (let z = pz - radius; z <= pz + radius; z++) {
         let rowStr = "";
         for (let x = px - radius; x <= px + radius; x++) {
-            
-            // 1. Ask the Engine what is currently rendered
             const engineID = noa.getBlock(x, groundY, z);
-            
-            // 2. Ask the Generator what SHOULD be there
             const genID = townGen.getBlockID(x, groundY, z);
 
-            // Visual Symbol
             let char = " ";
             if (engineID === BLOCKS.AIR) char = ".";
             else if (engineID === BLOCKS.GRASS) char = "G";
@@ -455,10 +481,7 @@ async function main() {
             else if (engineID === BLOCKS.GRAVEL) char = ":";
             else char = "#";
 
-            // If Engine and Generator disagree, mark it with "!"
             if (engineID !== genID) char = "!";
-
-            // Highlight Player Position
             if (x === px && z === pz) char = "@";
 
             rowStr += ` ${char} `;
