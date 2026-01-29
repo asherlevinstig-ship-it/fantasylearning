@@ -5,54 +5,93 @@ import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
 
 // --------------------------------------------------------------------------
-// HELPER: HUD
+// HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
+
 const setHud = (lines: string[]) => { 
     if (hudEl) {
         hudEl.innerHTML = lines.join("<br>");
         Object.assign(hudEl.style, {
-            whiteSpace: "pre-wrap", backgroundColor: "rgba(0, 0, 0, 0.5)", padding: "10px",
-            color: "white", fontFamily: "monospace", display: hudEl.style.display === "none" ? "none" : "block", borderRadius: "8px"
+            whiteSpace: "pre-wrap",
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            padding: "10px",
+            color: "white",
+            fontFamily: "monospace",
+            display: hudEl.style.display === "none" ? "none" : "block",
+            borderRadius: "8px"
         });
     }
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME UI
+// HELPER: BIOME NOTIFICATION UI
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
 let biomeSubEl: HTMLDivElement | null = null;
-let biomeCooldownUntil = 0;
 let biomeHideTimer: number | null = null;
+let biomeCooldownUntil = 0;
 
 function createBiomeUI() {
   biomeEl = document.createElement("div");
   biomeTitleEl = document.createElement("div");
   biomeSubEl = document.createElement("div");
+
+  biomeTitleEl.textContent = "";
+  biomeSubEl.textContent = "";
+
   biomeEl.appendChild(biomeTitleEl);
   biomeEl.appendChild(biomeSubEl);
+
   Object.assign(biomeEl.style, {
-    position: "fixed", top: "18%", left: "50%", transform: "translateX(-50%) translateY(-10px)",
-    textAlign: "center", fontFamily: "Impact, system-ui, sans-serif", pointerEvents: "none",
-    opacity: "0", transition: "opacity 300ms ease, transform 300ms ease", zIndex: "9999", userSelect: "none", whiteSpace: "nowrap",
+    position: "fixed",
+    top: "18%",
+    left: "50%",
+    transform: "translateX(-50%) translateY(-10px)",
+    textAlign: "center",
+    fontFamily: "Impact, system-ui, sans-serif",
+    pointerEvents: "none",
+    opacity: "0",
+    transition: "opacity 300ms ease, transform 300ms ease",
+    zIndex: "9999",
+    userSelect: "none",
+    whiteSpace: "nowrap",
   });
-  Object.assign(biomeTitleEl.style, { fontSize: "48px", color: "#FFD700", textShadow: "4px 4px 0px #000", lineHeight: "1" });
-  Object.assign(biomeSubEl.style, { marginTop: "6px", fontSize: "22px", color: "#ffffff", textShadow: "3px 3px 0px #000", opacity: "0.95" });
+
+  Object.assign(biomeTitleEl.style, {
+    fontSize: "48px",
+    color: "#FFD700",
+    textShadow: "4px 4px 0px #000",
+    lineHeight: "1",
+  });
+
+  Object.assign(biomeSubEl.style, {
+    marginTop: "6px",
+    fontSize: "22px",
+    color: "#ffffff",
+    textShadow: "3px 3px 0px #000",
+    opacity: "0.95",
+  });
+
   document.body.appendChild(biomeEl);
 }
 
 function showBiomeNotification(title: string, subtext: string = "") {
   if (!biomeEl || !biomeTitleEl || !biomeSubEl) return;
+
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
   biomeCooldownUntil = t + 1200; 
+
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
+
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
+
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
+
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -65,8 +104,18 @@ function showBiomeNotification(title: string, subtext: string = "") {
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: { id: string; width: number; height: number; style: Partial<CSSStyleDeclaration>; }) {
   const c = document.createElement("canvas");
-  c.id = opts.id; c.width = opts.width; c.height = opts.height;
-  Object.assign(c.style, { position: "fixed", pointerEvents: "none", imageRendering: "pixelated", zIndex: "100", ...opts.style });
+  c.id = opts.id;
+  c.width = opts.width;
+  c.height = opts.height;
+  
+  Object.assign(c.style, {
+    position: "fixed",
+    pointerEvents: "none",
+    imageRendering: "pixelated",
+    zIndex: "100",
+    ...opts.style,
+  });
+  
   document.body.appendChild(c);
   return c;
 }
@@ -75,13 +124,18 @@ function startThrottledRender(viewer: SkinViewer, fps = 30) {
   const frameMs = 1000 / fps;
   let last = performance.now();
   const loop = (t: number) => {
-    if (t - last >= frameMs) { viewer.render(); last = t; }
+    if (t - last >= frameMs) {
+      viewer.render();
+      last = t;
+    }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
 }
 
-function now() { return performance.now(); }
+function now() {
+  return performance.now();
+}
 
 async function main() {
   console.log("🚀 Starting Client...");
@@ -92,8 +146,12 @@ async function main() {
   // 1. SETUP NOA ENGINE
   // ========================================================================
   const noa: any = new Engine({
-    debug: true, chunkSize: 16, chunkAddDistance: 32, chunkRemoveDistance: 40,
-    playerStart: [0, 50, 0], texturePath: ""
+    debug: true,
+    chunkSize: 16,
+    chunkAddDistance: 32,    
+    chunkRemoveDistance: 40,
+    playerStart: [0, 50, 0],
+    texturePath: ""
   });
   (window as any).noa = noa;
 
@@ -112,7 +170,7 @@ async function main() {
   noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
   noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
 
-  // Register Blocks using Shared IDs
+  // Register Blocks using Shared IDs from blocks.ts
   noa.registry.registerBlock(BLOCKS.GRASS, { material: "grass" });
   noa.registry.registerBlock(BLOCKS.DIRT, { material: "dirt" });
   noa.registry.registerBlock(BLOCKS.STONE_BRICK, { material: "stone_brick" });
@@ -130,7 +188,7 @@ async function main() {
   // 3. INITIALIZE GENERATOR
   // ========================================================================
   console.time("GenInit");
-  // Generator now manages its own IDs via import
+  // Generator imports BLOCKS internally, so we only pass map config
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
@@ -144,6 +202,8 @@ async function main() {
   noa.inputs.bind('alt-fire', 'KeyR'); 
   noa.inputs.bind('home', 'KeyG'); noa.inputs.bind('wall', 'KeyH'); noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
+  // NEW: Scanner Tool
+  noa.inputs.bind('scan', 'KeyX');
 
   let showDebug = true; 
   noa.inputs.down.on('debug', () => {
@@ -158,6 +218,7 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
+    // Physics World Border
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -185,14 +246,14 @@ async function main() {
   });
 
   // ========================================================================
-  // 6. CHUNK LOADING (FIXED LOGIC)
+  // 6. CHUNK LOADING (CRITICAL FIX)
   // ========================================================================
   const chunkSize = noa.world._chunkSize;
   
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       try {
-        // FIX: The engine gives us WORLD COORDINATES (e.g. 1200), not indexes (75).
-        // Do NOT multiply by chunkSize again.
+        // FIX: The engine passed us WORLD COORDINATES (e.g., 1200) based on logs.
+        // We do NOT multiply by chunkSize.
         const chunkX = cx; 
         const chunkY = cy;
         const chunkZ = cz;
@@ -216,7 +277,7 @@ async function main() {
                     // 2. Resolve Block ID
                     const id = townGen.resolveBlockID(globalY, colData);
                     
-                    // 3. Set Block
+                    // 3. Set Block (Safe Number Check)
                     const safeID = (typeof id === 'number' && isFinite(id)) ? id : BLOCKS.GRASS;
                     dataArr.set(x, y, z, safeID);
                 }
@@ -354,6 +415,64 @@ async function main() {
     console.log(`[ZONE DEBUG] x=${p[0].toFixed(1)} z=${p[2].toFixed(1)} => ${zone}`);
   }, 1000);
 
+  // ========================================================================
+  // 11. DEBUG SCANNER TOOL (Press 'X')
+  // ========================================================================
+  noa.inputs.down.on('scan', () => {
+    const p = noa.entities.getPosition(noa.playerEntity);
+    const px = Math.floor(p[0]);
+    const py = Math.floor(p[1]);
+    const pz = Math.floor(p[2]);
+
+    console.group(`🔍 SCANNING AREA AROUND [${px}, ${py}, ${pz}]`);
+    console.log(`Chunk Coordinates: [${Math.floor(px/16)}, ${Math.floor(py/16)}, ${Math.floor(pz/16)}]`);
+    console.log(`Zone Logic Says: ${townGen.getZoneName(px, pz)}`);
+
+    // We scan a 10x10 area at the player's feet (y - 1)
+    const radius = 5;
+    const groundY = py - 1;
+
+    console.log(`\n--- GROUND MAP (Y=${groundY}) ---`);
+    console.log("Legend: [.]=Air [G]=Grass [S]=Stone [#]=Other\n");
+
+    let visualMap = "";
+
+    for (let z = pz - radius; z <= pz + radius; z++) {
+        let rowStr = "";
+        for (let x = px - radius; x <= px + radius; x++) {
+            
+            // 1. Ask the Engine what is currently rendered
+            const engineID = noa.getBlock(x, groundY, z);
+            
+            // 2. Ask the Generator what SHOULD be there
+            const genID = townGen.getBlockID(x, groundY, z);
+
+            // Visual Symbol
+            let char = " ";
+            if (engineID === BLOCKS.AIR) char = ".";
+            else if (engineID === BLOCKS.GRASS) char = "G";
+            else if (engineID === BLOCKS.STONE_BRICK) char = "S";
+            else if (engineID === BLOCKS.GRAVEL) char = ":";
+            else char = "#";
+
+            // If Engine and Generator disagree, mark it with "!"
+            if (engineID !== genID) char = "!";
+
+            // Highlight Player Position
+            if (x === px && z === pz) char = "@";
+
+            rowStr += ` ${char} `;
+        }
+        visualMap += rowStr + `  (z=${z})\n`;
+    }
+    console.log(visualMap);
+    console.log(`Key: @ = You, ! = ERROR (Sync Mismatch)`);
+    console.groupEnd();
+  });
+
+  // ========================================================================
+  // 12. RESIZE HANDLER
+  // ========================================================================
   const resizeHands = () => {
     const rawSize = Math.min(window.innerWidth * 0.35, 400);
     const size = Math.floor(rawSize * Math.min(1.25, window.devicePixelRatio || 1));

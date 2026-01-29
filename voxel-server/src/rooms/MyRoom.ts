@@ -22,7 +22,7 @@ export class MyRoom extends Room<MyRoomState> {
   }
 
   onDispose() {
-    console.log("roossssssssssssssssssm", this.roomId, "disposing...");
+    console.log("roosssssssssssssssssssm", this.roomId, "disposing...");
   }
 
 }
