@@ -1,4 +1,3 @@
-// Source of Truth for Block IDs
 export const BLOCKS = {
     AIR: 0,
     GRASS: 1,

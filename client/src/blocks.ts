@@ -1,5 +1,3 @@
-// This is a Value (Object), not just a Type. 
-// It exists at runtime so you can use it in logic.
 export const BLOCKS = {
     AIR: 0,
     GRASS: 1,
@@ -12,4 +10,4 @@ export const BLOCKS = {
     WOOD_LOG: 8,
     GLASS: 9,
     ROOF_STONE: 10,
-} as const; // 'as const' makes these numbers read-only literals
+} as const;
