@@ -1,7 +1,7 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
-import { TownGenerator } from "./TownGenerator";
+import { TownGenerator, BlockIDs } from "./TownGenerator";
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
@@ -24,7 +24,7 @@ const setHud = (lines: string[]) => {
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME NOTIFICATION UI
+// HELPER: BIOME NOTIFICATION UI (Minecraft Style Fade-in)
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
@@ -81,16 +81,18 @@ function showBiomeNotification(title: string, subtext: string = "") {
 
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
-  biomeCooldownUntil = t + 1200; 
+  biomeCooldownUntil = t + 1200; // 1.2s cooldown to prevent spam
 
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
 
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
 
+  // Animate In
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
 
+  // Animate Out after 2.5s
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -99,7 +101,7 @@ function showBiomeNotification(title: string, subtext: string = "") {
 }
 
 // --------------------------------------------------------------------------
-// HELPER: OVERLAY CANVAS
+// HELPER: OVERLAY CANVAS (For 3D Hands)
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: {
   id: string;
@@ -124,6 +126,9 @@ function createOverlayCanvas(opts: {
   return c;
 }
 
+// --------------------------------------------------------------------------
+// HELPER: THROTTLED RENDER LOOP (Optimizes Hand Rendering)
+// --------------------------------------------------------------------------
 function startThrottledRender(viewer: SkinViewer, fps = 30) {
   const frameMs = 1000 / fps;
   let last = performance.now();
@@ -144,7 +149,7 @@ function now() {
 
 async function main() {
   console.log("🚀 Starting Client...");
-  setHud(["Initializing Town Generator..."]);
+  setHud(["Initializing Engine..."]);
   createBiomeUI();
 
   // ========================================================================
@@ -153,36 +158,82 @@ async function main() {
   const WORLD_RADIUS = 2000;
 
   // ========================================================================
-  // 2. INITIALIZE GENERATOR
-  // ========================================================================
-  console.time("GenInit");
-  const townGen = new TownGenerator(4000, 4000, 12345);
-  console.timeEnd("GenInit");
-
-  const TOWN_RADIUS_LIMIT = townGen.townRadius + townGen.wallThickness; 
-
-  setHud(["Starting Engine..."]);
-
-  // ========================================================================
-  // 3. SETUP NOA ENGINE
+  // 2. SETUP NOA ENGINE
   // ========================================================================
   const noa: any = new Engine({
     debug: true,
     chunkSize: 16,           
-    chunkAddDistance: 32,    
+    chunkAddDistance: 32,    // High view distance
     chunkRemoveDistance: 40, 
     playerStart: [0, 50, 0], 
     texturePath: ""          
   });
   (window as any).noa = noa;
 
-  // Inputs
+  // ========================================================================
+  // 3. REGISTER MATERIALS & BLOCKS
+  // ========================================================================
+  // We register materials first, then blocks.
+  // Crucially, we CAPTURE the IDs returned by registerBlock to pass to the generator.
+  
+  // -- A. Materials --
+  noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
+  noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
+  noa.registry.registerMaterial("stone_brick", { color: [0.5, 0.5, 0.5] });
+  noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
+  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] });
+  
+  // House Materials
+  noa.registry.registerMaterial("wood_plank", { color: [0.76, 0.60, 0.42] }); // Light Wood
+  noa.registry.registerMaterial("wood_log", { color: [0.4, 0.3, 0.2] });     // Dark Wood
+  noa.registry.registerMaterial("roof", { color: [0.3, 0.3, 0.35] });       // Dark Blue-Grey
+  
+  // Transparent Materials (Alpha < 1)
+  noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
+  noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
+
+  // -- B. Blocks (Capture IDs!) --
+  const blockIDs: BlockIDs = {
+    AIR: 0,
+    GRASS: noa.registry.registerBlock("grass", { material: "grass" }),
+    DIRT: noa.registry.registerBlock("dirt", { material: "dirt" }),
+    STONE_BRICK: noa.registry.registerBlock("stone_brick", { material: "stone_brick" }),
+    GRAVEL: noa.registry.registerBlock("gravel", { material: "gravel" }),
+    BEACON_RAY: noa.registry.registerBlock("beacon", { material: "beacon", opaque: false }),
+    BEDROCK: noa.registry.registerBlock("bedrock", { material: "bedrock" }),
+    WOOD_PLANKS: noa.registry.registerBlock("wood_plank", { material: "wood_plank" }),
+    WOOD_LOG: noa.registry.registerBlock("wood_log", { material: "wood_log" }),
+    GLASS: noa.registry.registerBlock("glass", { material: "glass", opaque: false }),
+    ROOF_STONE: noa.registry.registerBlock("roof", { material: "roof" }),
+  };
+
+  console.log("✅ Block IDs registered successfully:", blockIDs);
+
+  // ========================================================================
+  // 4. INITIALIZE TOWN GENERATOR
+  // ========================================================================
+  console.time("GenInit");
+  // Pass the captured IDs to the generator so it uses the correct numbers
+  const townGen = new TownGenerator(4000, 4000, 12345, blockIDs);
+  console.timeEnd("GenInit");
+
+  const TOWN_RADIUS_LIMIT = townGen.townRadius + townGen.wallThickness; 
+
+  setHud(["Engine Started.", "Connecting to Server..."]);
+
+  // ========================================================================
+  // 5. INPUT BINDINGS
+  // ========================================================================
   noa.inputs.bind('fire', 'KeyF'); 
   noa.inputs.bind('fire', 'f');
   noa.inputs.bind('alt-fire', 'KeyR'); 
+  
+  // Debug Teleports
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
+
+  // HUD Toggle
   noa.inputs.bind('debug', 'F3'); 
   noa.inputs.bind('debug', 'KeyZ'); 
   noa.inputs.bind('debug', 'KeyP'); 
@@ -191,25 +242,30 @@ async function main() {
 
   noa.inputs.down.on('debug', () => {
       showDebug = !showDebug; 
-      if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
+      if (hudEl) {
+          hudEl.style.display = showDebug ? "block" : "none";
+      }
   });
 
   // ========================================================================
-  // 4. REAL-TIME TRACKER & BORDER LOGIC
+  // 6. REAL-TIME TRACKER & PHYSICS CLAMP
   // ========================================================================
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // World Border Physics Clamp
+    // 1. World Border Physics Clamp
+    // Prevents player from walking off the edge of the world
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
     else if (pos[2] < -WORLD_RADIUS) { pos[2] = -WORLD_RADIUS; modified = true; }
 
-    if (modified) noa.entities.setPosition(noa.playerEntity, pos);
+    if (modified) {
+      noa.entities.setPosition(noa.playerEntity, pos);
+    }
 
-    // Update HUD Tracker
+    // 2. Update HUD Tracker
     if (showDebug) {
         const x = Math.floor(pos[0]);
         const y = Math.floor(pos[1]);
@@ -235,38 +291,8 @@ async function main() {
   });
 
   // ========================================================================
-  // 5. REGISTER MATERIALS & BLOCKS (MATCHES TownGenerator.ts)
+  // 7. CLIENT-SIDE CHUNK RENDERING
   // ========================================================================
-  // Basic Materials
-  noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
-  noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
-  noa.registry.registerMaterial("stone_brick", { color: [0.5, 0.5, 0.5] });
-  noa.registry.registerMaterial("gravel", { color: [0.7, 0.7, 0.7] });
-  noa.registry.registerMaterial("bedrock", { color: [0.1, 0.1, 0.1] });
-  
-  // New Building Materials
-  noa.registry.registerMaterial("wood_plank", { color: [0.76, 0.60, 0.42] }); // Light Wood
-  noa.registry.registerMaterial("wood_log", { color: [0.4, 0.3, 0.2] });     // Dark Wood
-  noa.registry.registerMaterial("roof", { color: [0.3, 0.3, 0.35] });       // Dark Blue-Grey
-  
-  // Transparent Materials (Alpha < 1)
-  noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
-  noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
-
-  const AIR = 0;
-  
-  // Register Blocks with IDs matching TownGenerator constants
-  const GRASS = noa.registry.registerBlock(1, { material: "grass" });
-  const DIRT = noa.registry.registerBlock(2, { material: "dirt" });
-  const STONE_BRICK = noa.registry.registerBlock(3, { material: "stone_brick" });
-  const GRAVEL = noa.registry.registerBlock(4, { material: "gravel" });
-  const BEACON = noa.registry.registerBlock(5, { material: "beacon", opaque: false });
-  const BEDROCK = noa.registry.registerBlock(6, { material: "bedrock" });
-  const WOOD_PLANKS = noa.registry.registerBlock(7, { material: "wood_plank" });
-  const WOOD_LOG = noa.registry.registerBlock(8, { material: "wood_log" });
-  const GLASS = noa.registry.registerBlock(9, { material: "glass", opaque: false });
-  const ROOF = noa.registry.registerBlock(10, { material: "roof" });
-
   const chunkSize = noa.world._chunkSize;
 
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
@@ -274,18 +300,26 @@ async function main() {
       const chunkY = cy * chunkSize;
       const chunkZ = cz * chunkSize;
       
-      // Infinite Generation (Player clamped by physics, not visual culling)
+      // We generate infinite terrain visually (hills in distance), 
+      // but the physics clamp (in tick) keeps the player contained.
+      
+      // OPTIMIZATION: Column Hoisting
+      // We loop X and Z first, calculate the column data once, then fill Y.
       for (let x = 0; x < chunkSize; x++) {
         const globalX = chunkX + x;
+        
         for (let z = 0; z < chunkSize; z++) {
           const globalZ = chunkZ + z;
-          
-          // Hoisted Column Calculation
+
+          // 1. Heavy Lifting: Calculate layout once per column
           const colData = townGen.getColumnInfo(globalX, globalZ);
 
           for (let y = 0; y < chunkSize; y++) {
             const globalY = chunkY + y;
+            
+            // 2. Fast Resolution: Simple integer checks
             const id = townGen.resolveBlockID(globalY, colData);
+            
             dataArr.set(x, y, z, id);
           }
         }
@@ -295,9 +329,10 @@ async function main() {
   );
 
   // ========================================================================
-  // 6. HANDS OVERLAY
+  // 8. HANDS OVERLAY & SKINS
   // ========================================================================
   const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
+
   const handsCanvas = createOverlayCanvas({
     id: "hands-view",
     width: 400,
@@ -321,9 +356,8 @@ async function main() {
     po.skin.rightLeg.visible = false;
     po.skin.leftArm.visible = false; 
     po.skin.rightArm.visible = true;
-    po.skin.rightArm.rotation.x = -0.4;
-    po.skin.rightArm.rotation.z = 0.2;
-    po.skin.rightArm.rotation.y = 0.1;
+
+    po.skin.rightArm.rotation.set(-0.4, 0.1, 0.2);
     po.skin.rightArm.position.set(-2, -6, 0);
   }
 
@@ -331,6 +365,7 @@ async function main() {
   handsViewer.camera.lookAt(-2, -8, 4);
   startThrottledRender(handsViewer, 30);
 
+  // Hand Swing Animation
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
@@ -343,8 +378,10 @@ async function main() {
       const t = now() - start;
       const k = Math.min(1, t / duration);
       const swing = Math.sin(k * Math.PI);
+      
       skin.rightArm.rotation.x = baseX - swing * 1.2;
       skin.rightArm.rotation.z = baseZ - swing * 0.3;
+
       if (k < 1) requestAnimationFrame(animate);
       else {
         skin.rightArm.rotation.x = baseX;
@@ -354,23 +391,31 @@ async function main() {
     requestAnimationFrame(animate);
   };
 
+  // ========================================================================
+  // 9. TELEPORT ACTIONS
+  // ========================================================================
   noa.inputs.down.on("home", () => {
+      console.log("✈️ Teleport: BEACON");
       noa.entities.setPosition(noa.playerEntity, [0, 50, 0]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
+
   noa.inputs.down.on("wall", () => {
+      console.log("✈️ Teleport: CITY WALL");
       noa.entities.setPosition(noa.playerEntity, [800, 50, 40]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
+
   noa.inputs.down.on("wild", () => {
-      // Use generator to find safe height
+      console.log("✈️ Teleport: DEEP WILDERNESS");
+      // Find a safe height using the generator
       const h = townGen.getHeight(1200, 1200);
       noa.entities.setPosition(noa.playerEntity, [1200, h + 5, 1200]);
       noa.entities.getPhysicsBody(noa.playerEntity).velocity = [0,0,0];
   });
 
   // ========================================================================
-  // 7. COLYSEUS NETWORKING
+  // 10. COLYSEUS NETWORKING
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
@@ -382,16 +427,20 @@ async function main() {
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
+  // Networked Actions
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
+      
+      // Safety: Prevent breaking Bedrock
       const id = noa.getBlock(pos[0], pos[1], pos[2]);
-      if (id === BEDROCK) return;
+      if (id === blockIDs.BEDROCK) return;
+
       if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: AIR });
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: blockIDs.AIR });
       }
-      noa.setBlock(AIR, pos[0], pos[1], pos[2]);
+      noa.setBlock(blockIDs.AIR, pos[0], pos[1], pos[2]);
     }
   });
 
@@ -400,14 +449,14 @@ async function main() {
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
       if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: GRASS });
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: blockIDs.GRASS });
       }
-      noa.setBlock(GRASS, pos[0], pos[1], pos[2]);
+      noa.setBlock(blockIDs.GRASS, pos[0], pos[1], pos[2]);
     }
   });
 
   // ========================================================================
-  // 8. SERVER SYNC & ZONE CHECK
+  // 11. CHUNK SUBSCRIPTION & BIOME CHECKER LOOP
   // ========================================================================
   const SERVER_CHUNK_SIZE = 16; 
   const SUBSCRIPTION_RADIUS = 8;
@@ -416,18 +465,22 @@ async function main() {
   let pendingZone = "Unknown";
   let pendingSince = 0;
 
-  // FAST LOOP (250ms) - Subscriptions & UI Updates
+  // 250ms Loop: High priority updates
   setInterval(() => {
     if (!room || !room.connection || !room.connection.isOpen) return;
 
     const p = noa.entities.getPosition(noa.playerEntity);
+    
+    // 1. Send Subscription (for Server Physics/Tracking)
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
     const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
     room.send("subscribeChunks", { cx, cy, cz, r: SUBSCRIPTION_RADIUS });
 
+    // 2. Zone Calculation
     const newZone = townGen.getZoneName(p[0], p[2]);
 
+    // 3. Debounce Logic (Prevent UI flickering)
     const t = performance.now();
     if (newZone !== pendingZone) {
         pendingZone = newZone;
@@ -436,19 +489,18 @@ async function main() {
 
     if (pendingZone !== currentZone && (t - pendingSince) > 350) {
         console.log(`🗺️ Zone Change: ${currentZone} -> ${pendingZone}`);
+        
         if (pendingZone === "Town of Beginnings") {
             showBiomeNotification(pendingZone, "Safe Zone");
         } else {
             showBiomeNotification(pendingZone, "PvP Enabled");
         }
+        
         currentZone = pendingZone;
     }
   }, 250);
 
-  // ========================================================================
-  // 9. DEBUG: FORCED ZONE CHECKER (1000ms)
-  // ========================================================================
-  // This is the "Brutal Debug" line to verify coordinate math
+  // 1000ms Loop: Slow Debug Logging
   setInterval(() => {
     if (!noa.playerEntity) return;
     const p = noa.entities.getPosition(noa.playerEntity);
@@ -462,7 +514,7 @@ async function main() {
   }, 1000);
 
   // ========================================================================
-  // 10. RESIZE
+  // 12. RESIZE HANDLING
   // ========================================================================
   const OVERLAY_DPR = Math.min(1.25, window.devicePixelRatio || 1);
   const resizeHands = () => {
