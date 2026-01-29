@@ -2,96 +2,57 @@ import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
-import { BLOCKS } from "./blocks"; // The Single Source of Truth
+import { BLOCKS } from "./blocks"; 
 
 // --------------------------------------------------------------------------
-// HELPER: HUD (Top Left Debug Info)
+// HELPER: HUD
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
-
 const setHud = (lines: string[]) => { 
     if (hudEl) {
         hudEl.innerHTML = lines.join("<br>");
         Object.assign(hudEl.style, {
-            whiteSpace: "pre-wrap",
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            padding: "10px",
-            color: "white",
-            fontFamily: "monospace",
-            display: hudEl.style.display === "none" ? "none" : "block",
-            borderRadius: "8px"
+            whiteSpace: "pre-wrap", backgroundColor: "rgba(0, 0, 0, 0.5)", padding: "10px",
+            color: "white", fontFamily: "monospace", display: hudEl.style.display === "none" ? "none" : "block", borderRadius: "8px"
         });
     }
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME NOTIFICATION UI
+// HELPER: BIOME UI
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
 let biomeSubEl: HTMLDivElement | null = null;
-let biomeHideTimer: number | null = null;
 let biomeCooldownUntil = 0;
+let biomeHideTimer: number | null = null;
 
 function createBiomeUI() {
   biomeEl = document.createElement("div");
   biomeTitleEl = document.createElement("div");
   biomeSubEl = document.createElement("div");
-
-  biomeTitleEl.textContent = "";
-  biomeSubEl.textContent = "";
-
   biomeEl.appendChild(biomeTitleEl);
   biomeEl.appendChild(biomeSubEl);
-
   Object.assign(biomeEl.style, {
-    position: "fixed",
-    top: "18%",
-    left: "50%",
-    transform: "translateX(-50%) translateY(-10px)",
-    textAlign: "center",
-    fontFamily: "Impact, system-ui, sans-serif",
-    pointerEvents: "none",
-    opacity: "0",
-    transition: "opacity 300ms ease, transform 300ms ease",
-    zIndex: "9999",
-    userSelect: "none",
-    whiteSpace: "nowrap",
+    position: "fixed", top: "18%", left: "50%", transform: "translateX(-50%) translateY(-10px)",
+    textAlign: "center", fontFamily: "Impact, system-ui, sans-serif", pointerEvents: "none",
+    opacity: "0", transition: "opacity 300ms ease, transform 300ms ease", zIndex: "9999", userSelect: "none", whiteSpace: "nowrap",
   });
-
-  Object.assign(biomeTitleEl.style, {
-    fontSize: "48px",
-    color: "#FFD700",
-    textShadow: "4px 4px 0px #000",
-    lineHeight: "1",
-  });
-
-  Object.assign(biomeSubEl.style, {
-    marginTop: "6px",
-    fontSize: "22px",
-    color: "#ffffff",
-    textShadow: "3px 3px 0px #000",
-    opacity: "0.95",
-  });
-
+  Object.assign(biomeTitleEl.style, { fontSize: "48px", color: "#FFD700", textShadow: "4px 4px 0px #000", lineHeight: "1" });
+  Object.assign(biomeSubEl.style, { marginTop: "6px", fontSize: "22px", color: "#ffffff", textShadow: "3px 3px 0px #000", opacity: "0.95" });
   document.body.appendChild(biomeEl);
 }
 
 function showBiomeNotification(title: string, subtext: string = "") {
   if (!biomeEl || !biomeTitleEl || !biomeSubEl) return;
-
   const t = performance.now();
   if (t < biomeCooldownUntil) return;
   biomeCooldownUntil = t + 1200; 
-
   biomeTitleEl.textContent = title;
   biomeSubEl.textContent = subtext;
-
   if (biomeHideTimer !== null) window.clearTimeout(biomeHideTimer);
-
   biomeEl.style.opacity = "1";
   biomeEl.style.transform = "translateX(-50%) translateY(0px)";
-
   biomeHideTimer = window.setTimeout(() => {
     if (!biomeEl) return;
     biomeEl.style.opacity = "0";
@@ -104,18 +65,8 @@ function showBiomeNotification(title: string, subtext: string = "") {
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: { id: string; width: number; height: number; style: Partial<CSSStyleDeclaration>; }) {
   const c = document.createElement("canvas");
-  c.id = opts.id;
-  c.width = opts.width;
-  c.height = opts.height;
-  
-  Object.assign(c.style, {
-    position: "fixed",
-    pointerEvents: "none",
-    imageRendering: "pixelated",
-    zIndex: "100",
-    ...opts.style,
-  });
-  
+  c.id = opts.id; c.width = opts.width; c.height = opts.height;
+  Object.assign(c.style, { position: "fixed", pointerEvents: "none", imageRendering: "pixelated", zIndex: "100", ...opts.style });
   document.body.appendChild(c);
   return c;
 }
@@ -124,18 +75,13 @@ function startThrottledRender(viewer: SkinViewer, fps = 30) {
   const frameMs = 1000 / fps;
   let last = performance.now();
   const loop = (t: number) => {
-    if (t - last >= frameMs) {
-      viewer.render();
-      last = t;
-    }
+    if (t - last >= frameMs) { viewer.render(); last = t; }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
 }
 
-function now() {
-  return performance.now();
-}
+function now() { return performance.now(); }
 
 async function main() {
   console.log("🚀 Starting Client...");
@@ -146,12 +92,8 @@ async function main() {
   // 1. SETUP NOA ENGINE
   // ========================================================================
   const noa: any = new Engine({
-    debug: true,
-    chunkSize: 16,
-    chunkAddDistance: 32,    
-    chunkRemoveDistance: 40,
-    playerStart: [0, 50, 0],
-    texturePath: ""
+    debug: true, chunkSize: 16, chunkAddDistance: 32, chunkRemoveDistance: 40,
+    playerStart: [0, 50, 0], texturePath: ""
   });
   (window as any).noa = noa;
 
@@ -170,7 +112,7 @@ async function main() {
   noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
   noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
 
-  // ⚠️ CRITICAL: Register blocks using the SHARED numeric IDs
+  // Register Blocks using Shared IDs
   noa.registry.registerBlock(BLOCKS.GRASS, { material: "grass" });
   noa.registry.registerBlock(BLOCKS.DIRT, { material: "dirt" });
   noa.registry.registerBlock(BLOCKS.STONE_BRICK, { material: "stone_brick" });
@@ -182,13 +124,13 @@ async function main() {
   noa.registry.registerBlock(BLOCKS.GLASS, { material: "glass", opaque: false });
   noa.registry.registerBlock(BLOCKS.ROOF_STONE, { material: "roof" });
 
-  console.log("✅ Blocks registered using shared ID map.");
+  console.log("✅ Blocks registered.");
 
   // ========================================================================
   // 3. INITIALIZE GENERATOR
   // ========================================================================
   console.time("GenInit");
-  // We do NOT pass IDs here anymore, the generator imports BLOCKS directly.
+  // Generator now manages its own IDs via import
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
@@ -210,13 +152,12 @@ async function main() {
   });
 
   // ========================================================================
-  // 5. TICK LOOP (Physics & HUD)
+  // 5. TICK LOOP
   // ========================================================================
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // World Border Physics Clamp
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -244,18 +185,21 @@ async function main() {
   });
 
   // ========================================================================
-  // 6. CHUNK LOADING
+  // 6. CHUNK LOADING (FIXED LOGIC)
   // ========================================================================
   const chunkSize = noa.world._chunkSize;
+  
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       try {
-        const chunkX = cx * chunkSize;
-        const chunkY = cy * chunkSize;
-        const chunkZ = cz * chunkSize;
+        // FIX: The engine gives us WORLD COORDINATES (e.g. 1200), not indexes (75).
+        // Do NOT multiply by chunkSize again.
+        const chunkX = cx; 
+        const chunkY = cy;
+        const chunkZ = cz;
 
-        // Logging sampler: Prints 1% of chunk requests to console for debugging
+        // Sampling Logger
         if (Math.random() < 0.01) { 
-             console.log(`[ChunkGen] Generating cx=${cx} cy=${cy} cz=${cz}`);
+             console.log(`[ChunkGen] Request: cx=${cx} cy=${cy} cz=${cz}`);
         }
         
         for (let x = 0; x < chunkSize; x++) {
@@ -273,10 +217,7 @@ async function main() {
                     const id = townGen.resolveBlockID(globalY, colData);
                     
                     // 3. Set Block
-                    // Safety check: Ensure valid number. 
-                    // Using imported BLOCKS guarantees consistency.
                     const safeID = (typeof id === 'number' && isFinite(id)) ? id : BLOCKS.GRASS;
-                    
                     dataArr.set(x, y, z, safeID);
                 }
             }
@@ -285,7 +226,6 @@ async function main() {
 
       } catch (e) {
           console.error("❌ Generator Crashed at", cx, cy, cz, e);
-          // Fallback to solid block so user doesn't fall into void
           for (let i = 0; i < dataArr.data.length; i++) dataArr.data[i] = BLOCKS.GRASS;
           noa.world.setChunkData(requestID, dataArr, null);
       }
@@ -297,33 +237,21 @@ async function main() {
   // ========================================================================
   const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
   const handsCanvas = createOverlayCanvas({
-    id: "hands-view",
-    width: 400,
-    height: 400,
-    style: {
-      left: "auto", right: "0px", bottom: "0px", top: "auto",
-      width: "35vw", height: "45vh", background: "transparent",
-    },
+    id: "hands-view", width: 400, height: 400,
+    style: { left: "auto", right: "0px", bottom: "0px", top: "auto", width: "35vw", height: "45vh", background: "transparent" },
   });
-
   const handsViewer = new SkinViewer({ canvas: handsCanvas, width: 400, height: 400 });
-  handsViewer.fov = 70;
-  handsViewer.zoom = 1.0;
+  handsViewer.fov = 70; handsViewer.zoom = 1.0;
   await handsViewer.loadSkin(SKIN_URL);
 
   const po = handsViewer.playerObject;
   if (po && po.skin) {
-    po.skin.head.visible = false;
-    po.skin.body.visible = false;
-    po.skin.leftLeg.visible = false;
-    po.skin.rightLeg.visible = false;
-    po.skin.leftArm.visible = false; 
-    po.skin.rightArm.visible = true;
-
+    po.skin.head.visible = false; po.skin.body.visible = false;
+    po.skin.leftLeg.visible = false; po.skin.rightLeg.visible = false;
+    po.skin.leftArm.visible = false; po.skin.rightArm.visible = true;
     po.skin.rightArm.rotation.set(-0.4, 0.1, 0.2);
     po.skin.rightArm.position.set(-2, -6, 0);
   }
-
   handsViewer.camera.position.set(-4, 0, -8);
   handsViewer.camera.lookAt(-2, -8, 4);
   startThrottledRender(handsViewer, 30);
@@ -331,22 +259,15 @@ async function main() {
   const swingHand = () => {
     const skin = handsViewer.playerObject?.skin;
     if (!skin?.rightArm) return;
-    const start = now();
-    const duration = 200; 
-    const baseX = -0.4;
-    const baseZ = 0.2;
-
+    const start = now(); const duration = 200; 
+    const baseX = -0.4; const baseZ = 0.2;
     const animate = () => {
-      const t = now() - start;
-      const k = Math.min(1, t / duration);
+      const t = now() - start; const k = Math.min(1, t / duration);
       const swing = Math.sin(k * Math.PI);
       skin.rightArm.rotation.x = baseX - swing * 1.2;
       skin.rightArm.rotation.z = baseZ - swing * 0.3;
       if (k < 1) requestAnimationFrame(animate);
-      else {
-        skin.rightArm.rotation.x = baseX;
-        skin.rightArm.rotation.z = baseZ;
-      }
+      else { skin.rightArm.rotation.x = baseX; skin.rightArm.rotation.z = baseZ; }
     };
     requestAnimationFrame(animate);
   };
@@ -374,7 +295,6 @@ async function main() {
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
-  // Networked Actions
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
@@ -409,7 +329,6 @@ async function main() {
 
   setInterval(() => {
     if (!room || !room.connection || !room.connection.isOpen) return;
-
     const p = noa.entities.getPosition(noa.playerEntity);
     const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
     const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
@@ -418,10 +337,7 @@ async function main() {
 
     const newZone = townGen.getZoneName(p[0], p[2]);
     const t = performance.now();
-    if (newZone !== pendingZone) {
-        pendingZone = newZone;
-        pendingSince = t;
-    }
+    if (newZone !== pendingZone) { pendingZone = newZone; pendingSince = t; }
 
     if (pendingZone !== currentZone && (t - pendingSince) > 350) {
         if (pendingZone === "Town of Beginnings") showBiomeNotification(pendingZone, "Safe Zone");
@@ -438,9 +354,6 @@ async function main() {
     console.log(`[ZONE DEBUG] x=${p[0].toFixed(1)} z=${p[2].toFixed(1)} => ${zone}`);
   }, 1000);
 
-  // ========================================================================
-  // 11. RESIZE HANDLER
-  // ========================================================================
   const resizeHands = () => {
     const rawSize = Math.min(window.innerWidth * 0.35, 400);
     const size = Math.floor(rawSize * Math.min(1.25, window.devicePixelRatio || 1));
