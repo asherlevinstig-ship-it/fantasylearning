@@ -5,7 +5,7 @@ import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
 import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
 import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
-
+import { InventoryUI } from "./ui/InventoryUI";
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
@@ -151,7 +151,7 @@ async function main() {
   // 4. UI & INPUTS
   // ========================================================================
   new HotbarUI(); // Mounts the Hotbar Visuals
-
+new InventoryUI();  // Big Window (Visible on 'E')
   // Standard Inputs
   noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
   noa.inputs.bind('alt-fire', 'KeyR'); 

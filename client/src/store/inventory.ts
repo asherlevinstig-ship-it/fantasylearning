@@ -11,10 +11,12 @@ export type InventoryItem = {
 };
 
 interface InventoryState {
-    // We use a sparse array to support high slot IDs (e.g., Armor at 100+)
     slots: (InventoryItem | null)[]; 
-    selectedSlot: number; // 0-8 (Hotbar)
+    selectedSlot: number; 
     isOpen: boolean;
+    
+    // NEW: The item currently stuck to the mouse cursor
+    cursorItem: InventoryItem | null; 
 
     // Actions
     toggleOpen: () => void;
@@ -22,119 +24,161 @@ interface InventoryState {
     setSlot: (index: number, itemId: number, count: number) => void;
     addItem: (itemId: number, count: number) => boolean;
     getSelectedItem: () => InventoryItem | null;
+    
+    // NEW: Handle clicking a slot in the UI
+    clickSlot: (index: number, isRightClick?: boolean) => void;
 }
 
 // --------------------------------------------------------------------------
 // STORE DEFINITION
 // --------------------------------------------------------------------------
 export const inventoryStore = createStore<InventoryState>((set, get) => ({
-    // Initialize with enough space for Hotbar (0-8) + Inventory (9-35)
-    // Armor slots (100+) will be auto-expanded by JS arrays if set
-    slots: Array(36).fill(null), 
+    // 0-8: Hotbar, 9-35: Main Inv, 100-103: Armor
+    slots: Array(110).fill(null), 
     selectedSlot: 0,
     isOpen: false,
+    cursorItem: null,
 
-    /**
-     * Toggles the Inventory UI open/closed
-     */
     toggleOpen: () => {
-        set((state) => ({ isOpen: !state.isOpen }));
+        const { isOpen, cursorItem, addItem } = get();
+        
+        // If closing with an item on cursor, try to put it back
+        if (isOpen && cursorItem) {
+            const success = addItem(cursorItem.id, cursorItem.count);
+            if (!success) {
+                console.log("⚠️ Inventory full, dropped cursor item (logic not implemented)");
+                // In a real game, you would spawn a 'drop' entity here
+            }
+            set({ cursorItem: null });
+        }
+        
+        set({ isOpen: !isOpen });
     },
 
-    /**
-     * Changes the active hotbar slot (0-8)
-     */
     selectSlot: (index) => {
         if (index >= 0 && index < 9) {
             set({ selectedSlot: index });
         }
     },
 
-    /**
-     * Sets a specific slot to an item, enforcing Registry rules.
-     * Used for moving items, equipping armor, or admin commands.
-     */
     setSlot: (index, itemId, count) => {
-        // 1. REGISTRY VALIDATION
-        // Check if this item is allowed in this specific slot (e.g. Helmet -> Head Slot)
-        if (!ItemRegistry.canEquip(index, itemId)) {
-            console.warn(`⚠️ Blocked: Cannot equip item ${itemId} into slot ${index}`);
-            return; 
-        }
-
-        // 2. STATE UPDATE
+        // Validation handled by ItemRegistry inside main logic usually, 
+        // but simple setSlot trusts the caller or checks basic bounds.
         const newSlots = [...get().slots];
-        
-        if (count <= 0) {
-            newSlots[index] = null; // Remove item if count is 0
-        } else {
-            newSlots[index] = { id: itemId, count };
-        }
-
+        if (count <= 0) newSlots[index] = null;
+        else newSlots[index] = { id: itemId, count };
         set({ slots: newSlots });
     },
 
-    /**
-     * Auto-stacks items into the inventory.
-     * Returns true if successful, false if inventory is full.
-     */
     addItem: (itemId, count) => {
         const { slots, setSlot } = get();
-        
-        // LIMITATION: Only scan main inventory (0-35) for pickup
-        // We don't want to auto-equip armor or put items in the offhand automatically
         const INVENTORY_SIZE = 36; 
 
-        // 1. Try to STACK with existing items
+        // 1. Stack
         for (let i = 0; i < INVENTORY_SIZE; i++) {
-            if (slots[i]?.id === itemId) {
-                // Determine max stack size (usually 64)
-                const currentCount = slots[i]!.count;
-                if (currentCount < 64) {
-                    const space = 64 - currentCount;
-                    const toAdd = Math.min(space, count);
-                    
-                    setSlot(i, itemId, currentCount + toAdd);
-                    
-                    count -= toAdd;
-                    if (count <= 0) return true; // All items added
-                }
+            if (slots[i]?.id === itemId && slots[i]!.count < 64) {
+                const space = 64 - slots[i]!.count;
+                const toAdd = Math.min(space, count);
+                setSlot(i, itemId, slots[i]!.count + toAdd);
+                count -= toAdd;
+                if (count <= 0) return true;
             }
         }
-
-        // 2. Try to find an EMPTY slot
+        // 2. Empty Slot
         for (let i = 0; i < INVENTORY_SIZE; i++) {
-            if (slots[i] === null || slots[i] === undefined) {
+            if (!slots[i]) {
                 setSlot(i, itemId, count);
                 return true;
             }
         }
-
-        return false; // Inventory is full
+        return false;
     },
 
-    /**
-     * Helper to get the item currently held in hand
-     */
     getSelectedItem: () => {
         const { slots, selectedSlot } = get();
         return slots[selectedSlot] || null;
+    },
+
+    // --- CORE INVENTORY INTERACTION LOGIC ---
+    clickSlot: (index, isRightClick = false) => {
+        const { slots, cursorItem, setSlot } = get();
+        const clickedItem = slots[index];
+
+        // 1. Check Permissions (e.g. Armor Slots)
+        if (cursorItem && !ItemRegistry.canEquip(index, cursorItem.id)) {
+            // Cannot place this item here (e.g. Dirt in Head slot)
+            return;
+        }
+
+        // 2. LOGIC: Cursor Empty + Slot Empty -> Do nothing
+        if (!cursorItem && !clickedItem) return;
+
+        // 3. LOGIC: Cursor Empty + Slot Has Item -> PICK UP
+        if (!cursorItem && clickedItem) {
+            if (isRightClick) {
+                // Take half (Split)
+                const half = Math.ceil(clickedItem.count / 2);
+                set({ cursorItem: { id: clickedItem.id, count: half } });
+                setSlot(index, clickedItem.id, clickedItem.count - half);
+            } else {
+                // Pick up all
+                set({ cursorItem: clickedItem });
+                setSlot(index, 0, 0); // Clear slot
+            }
+            return;
+        }
+
+        // 4. LOGIC: Cursor Has Item + Slot Empty -> PLACE
+        if (cursorItem && !clickedItem) {
+            if (isRightClick) {
+                // Place one
+                setSlot(index, cursorItem.id, 1);
+                if (cursorItem.count > 1) {
+                    set({ cursorItem: { ...cursorItem, count: cursorItem.count - 1 } });
+                } else {
+                    set({ cursorItem: null });
+                }
+            } else {
+                // Place all
+                setSlot(index, cursorItem.id, cursorItem.count);
+                set({ cursorItem: null });
+            }
+            return;
+        }
+
+        // 5. LOGIC: Cursor Has Item + Slot Has Item -> STACK or SWAP
+        if (cursorItem && clickedItem) {
+            // A. Same ID -> Stack
+            if (cursorItem.id === clickedItem.id) {
+                const space = 64 - clickedItem.count;
+                if (space > 0) {
+                    const toAdd = isRightClick ? 1 : Math.min(space, cursorItem.count);
+                    
+                    setSlot(index, clickedItem.id, clickedItem.count + toAdd);
+                    
+                    const remain = cursorItem.count - toAdd;
+                    set({ cursorItem: remain > 0 ? { ...cursorItem, count: remain } : null });
+                }
+                return;
+            }
+
+            // B. Different ID -> Swap
+            // (Only if not right clicking, and assuming target slot accepts the item)
+            if (!isRightClick) {
+                 // Check if the item currently in the slot can go to cursor? (Always yes)
+                 // Check if cursor item can go to slot? (Already checked at step 1)
+                 setSlot(index, cursorItem.id, cursorItem.count);
+                 set({ cursorItem: clickedItem });
+            }
+        }
     }
 }));
 
-// --------------------------------------------------------------------------
-// INITIAL STARTER KIT (Default Loadout)
-// --------------------------------------------------------------------------
-// We access the store directly to pre-fill it on load.
+// --- INITIALIZE DEFAULT ITEMS ---
 const { setSlot } = inventoryStore.getState();
-
-// Hotbar
 setSlot(0, BLOCKS.GRASS, 64);
 setSlot(1, BLOCKS.STONE_BRICK, 64);
 setSlot(2, BLOCKS.WOOD_PLANKS, 64);
 setSlot(3, BLOCKS.GLASS, 64);
 setSlot(4, BLOCKS.BEACON_RAY, 1);
-setSlot(5, BLOCKS.WOOD_LOG, 32);
-setSlot(6, BLOCKS.GRAVEL, 32);
-setSlot(7, BLOCKS.ROOF_STONE, 32);
-setSlot(8, BLOCKS.BEDROCK, 1); // Admin tool
+setSlot(100, BLOCKS.GLASS, 1); // Helmet slot example

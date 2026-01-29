@@ -1,217 +1,197 @@
-import { inventoryStore, type EquipSlot } from "../state/inventoryStore";
+import { inventoryStore } from "../store/inventory";
+import { BLOCKS } from "../blocks";
+import { ARMOR_SLOTS } from "../items/ItemRegistry";
 
-// Simple label for items (replace later with icons)
-function itemLabel(id: number) {
-  return `#${id}`;
-}
+export class InventoryUI {
+    private backdrop: HTMLDivElement;
+    private window: HTMLDivElement;
+    private cursorItem: HTMLDivElement;
+    private slots: HTMLDivElement[] = [];
 
-function makeSlotEl() {
-  const el = document.createElement("div");
-  Object.assign(el.style, {
-    width: "52px",
-    height: "52px",
-    border: "2px solid rgba(255,255,255,0.25)",
-    background: "rgba(0,0,0,0.35)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: "system-ui, sans-serif",
-    fontSize: "12px",
-    position: "relative",
-    userSelect: "none",
-  });
-  return el;
-}
+    constructor() {
+        // 1. Create Backdrop (Dark background)
+        this.backdrop = document.createElement("div");
+        Object.assign(this.backdrop.style, {
+            position: "fixed", top: "0", left: "0", width: "100vw", height: "100vh",
+            backgroundColor: "rgba(0, 0, 0, 0.75)", display: "none", zIndex: "2000"
+        });
 
-export function mountInventoryUI() {
-  let held:
-    | null
-    | { area: "hotbar" | "inventory" | "equipment"; index?: number; slot?: EquipSlot } = null;
+        // 2. Create Window (The grey box)
+        this.window = document.createElement("div");
+        Object.assign(this.window.style, {
+            position: "absolute", top: "50%", left: "50%",
+            transform: "translate(-50%, -50%)", width: "352px", height: "332px",
+            backgroundColor: "#c6c6c6", border: "4px solid #555",
+            boxShadow: "inset 4px 4px #fff, inset -4px -4px #555",
+            display: "flex", flexDirection: "column", padding: "16px", gap: "16px"
+        });
+        this.backdrop.appendChild(this.window);
 
-  const root = document.createElement("div");
-  root.id = "inventory-root";
-  Object.assign(root.style, {
-    position: "fixed",
-    inset: "0",
-    display: "none",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "rgba(0,0,0,0.35)",
-    zIndex: "9998",
-  });
+        // 3. Create Sections
+        this.createArmorSection();
+        this.createMainSection(); // 9x3 Grid
+        this.createHotbarSection(); // 1x9 Grid
 
-  const panel = document.createElement("div");
-  Object.assign(panel.style, {
-    width: "820px",
-    maxWidth: "95vw",
-    padding: "18px",
-    borderRadius: "14px",
-    background: "rgba(20,20,20,0.9)",
-    border: "1px solid rgba(255,255,255,0.15)",
-    display: "grid",
-    gridTemplateColumns: "220px 1fr",
-    gap: "18px",
-    color: "white",
-  });
+        // 4. Create Floating Cursor Item (Follows Mouse)
+        this.cursorItem = document.createElement("div");
+        Object.assign(this.cursorItem.style, {
+            position: "fixed", width: "32px", height: "32px", pointerEvents: "none",
+            zIndex: "3000", display: "none", fontSize: "12px", fontWeight: "bold"
+        });
+        document.body.appendChild(this.cursorItem);
+        document.body.appendChild(this.backdrop);
 
-  // Equipment column
-  const left = document.createElement("div");
-  left.innerHTML = `<div style="font-size:18px;margin-bottom:10px;">Equipment</div>`;
-  const equipGrid = document.createElement("div");
-  Object.assign(equipGrid.style, {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, 52px)",
-    gap: "10px",
-    alignContent: "start",
-  });
+        // 5. Events
+        document.addEventListener("mousemove", (e) => {
+            this.cursorItem.style.left = `${e.clientX + 10}px`;
+            this.cursorItem.style.top = `${e.clientY + 10}px`;
+        });
 
-  const equipSlots: EquipSlot[] = ["head", "chest", "legs", "feet", "offhand"];
-  const equipEls = new Map<EquipSlot, HTMLDivElement>();
-
-  for (const slotName of equipSlots) {
-    const slotEl = makeSlotEl();
-    slotEl.title = slotName;
-    slotEl.style.outline = "2px solid rgba(255,215,0,0.15)";
-
-    slotEl.addEventListener("click", () => {
-      const st = inventoryStore.getState();
-      if (!held) {
-        // pick up from equipment if exists
-        if (st.equipment[slotName]) held = { area: "equipment", slot: slotName };
-      } else {
-        // place/swap into equipment
-        inventoryStore.getState().moveItem(held, { area: "equipment", slot: slotName });
-        held = null;
-      }
-      render();
-    });
-
-    equipGrid.appendChild(slotEl);
-    equipEls.set(slotName, slotEl);
-  }
-
-  left.appendChild(equipGrid);
-
-  // Inventory column
-  const right = document.createElement("div");
-  right.innerHTML = `<div style="font-size:18px;margin-bottom:10px;">Inventory</div>`;
-
-  const invGrid = document.createElement("div");
-  Object.assign(invGrid.style, {
-    display: "grid",
-    gridTemplateColumns: "repeat(9, 52px)",
-    gap: "8px",
-  });
-
-  const invEls: HTMLDivElement[] = [];
-  for (let i = 0; i < 27; i++) {
-    const slotEl = makeSlotEl();
-    slotEl.addEventListener("click", () => {
-      const st = inventoryStore.getState();
-      if (!held) {
-        if (st.inventory[i]) held = { area: "inventory", index: i };
-      } else {
-        inventoryStore.getState().moveItem(held, { area: "inventory", index: i });
-        held = null;
-      }
-      render();
-    });
-    invEls.push(slotEl);
-    invGrid.appendChild(slotEl);
-  }
-
-  // Hotbar row inside the panel
-  const hotbarRow = document.createElement("div");
-  hotbarRow.style.marginTop = "14px";
-  hotbarRow.innerHTML = `<div style="font-size:18px;margin:10px 0;">Hotbar</div>`;
-
-  const hotbarGrid = document.createElement("div");
-  Object.assign(hotbarGrid.style, {
-    display: "grid",
-    gridTemplateColumns: "repeat(9, 52px)",
-    gap: "8px",
-  });
-
-  const hotEls: HTMLDivElement[] = [];
-  for (let i = 0; i < 9; i++) {
-    const slotEl = makeSlotEl();
-    slotEl.addEventListener("click", () => {
-      const st = inventoryStore.getState();
-      if (!held) {
-        if (st.hotbar[i]) held = { area: "hotbar", index: i };
-      } else {
-        inventoryStore.getState().moveItem(held, { area: "hotbar", index: i });
-        held = null;
-      }
-      render();
-    });
-    hotEls.push(slotEl);
-    hotbarGrid.appendChild(slotEl);
-  }
-
-  hotbarRow.appendChild(hotbarGrid);
-
-  right.appendChild(invGrid);
-  right.appendChild(hotbarRow);
-
-  panel.appendChild(left);
-  panel.appendChild(right);
-  root.appendChild(panel);
-  document.body.appendChild(root);
-
-  // Close when clicking backdrop
-  root.addEventListener("click", (e) => {
-    if (e.target === root) inventoryStore.getState().toggleOpen();
-  });
-
-  const renderSlot = (el: HTMLDivElement, item: any, selected = false) => {
-    el.innerHTML = "";
-    el.style.borderColor = selected ? "rgba(255,215,0,0.9)" : "rgba(255,255,255,0.25)";
-
-    if (!item) return;
-
-    const label = document.createElement("div");
-    label.textContent = itemLabel(item.id);
-    el.appendChild(label);
-
-    const count = document.createElement("div");
-    count.textContent = String(item.count);
-    Object.assign(count.style, {
-      position: "absolute",
-      right: "6px",
-      bottom: "4px",
-      fontSize: "12px",
-      opacity: "0.9",
-    });
-    el.appendChild(count);
-  };
-
-  const render = () => {
-    const st = inventoryStore.getState();
-    root.style.display = st.isOpen ? "flex" : "none";
-
-    // equipment
-    for (const slot of equipSlots) {
-      renderSlot(equipEls.get(slot)!, st.equipment[slot]);
+        // 6. Subscribe to Store
+        inventoryStore.subscribe((state) => {
+            this.render(state);
+        });
     }
 
-    // inventory
-    for (let i = 0; i < st.inventory.length; i++) {
-      renderSlot(invEls[i], st.inventory[i]);
+    private createSlot(slotIndex: number) {
+        const slot = document.createElement("div");
+        Object.assign(slot.style, {
+            width: "32px", height: "32px", backgroundColor: "#8b8b8b",
+            border: "2px solid #373737", borderRightColor: "#fff", borderBottomColor: "#fff",
+            position: "relative", cursor: "pointer"
+        });
+
+        // Click Handler
+        slot.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            // 0 = Left Click, 2 = Right Click
+            inventoryStore.getState().clickSlot(slotIndex, e.button === 2);
+        });
+
+        // Context Menu prevent (for right click)
+        slot.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        this.slots[slotIndex] = slot;
+        return slot;
     }
 
-    // hotbar
-    for (let i = 0; i < st.hotbar.length; i++) {
-      renderSlot(hotEls[i], st.hotbar[i], i === st.selectedSlot);
+    private createArmorSection() {
+        const container = document.createElement("div");
+        container.style.display = "flex";
+        container.style.gap = "4px";
+        container.style.marginBottom = "10px";
+        
+        // Head, Chest, Legs, Feet
+        container.appendChild(this.createSlot(ARMOR_SLOTS.HEAD));
+        container.appendChild(this.createSlot(ARMOR_SLOTS.CHEST));
+        container.appendChild(this.createSlot(ARMOR_SLOTS.LEGS));
+        container.appendChild(this.createSlot(ARMOR_SLOTS.FEET));
+        
+        // Labels for clarity
+        const label = document.createElement("div");
+        label.textContent = "Armor";
+        label.style.fontFamily = "monospace";
+        label.style.marginLeft = "10px";
+        container.appendChild(label);
+
+        this.window.appendChild(container);
     }
 
-    // show what you're holding in the title bar (simple feedback)
-    panel.dataset.held = held ? JSON.stringify(held) : "";
-  };
+    private createMainSection() {
+        const grid = document.createElement("div");
+        Object.assign(grid.style, {
+            display: "grid", gridTemplateColumns: "repeat(9, 36px)", gap: "4px"
+        });
 
-  // subscribe to store updates
-  inventoryStore.subscribe(() => render());
-  render();
+        // Slots 9 to 35 (Inventory)
+        for (let i = 9; i < 36; i++) {
+            grid.appendChild(this.createSlot(i));
+        }
+        this.window.appendChild(grid);
+    }
 
-  return { render };
+    private createHotbarSection() {
+        const label = document.createElement("div");
+        label.textContent = "Hotbar";
+        label.style.fontFamily = "monospace";
+        label.style.marginTop = "10px";
+        this.window.appendChild(label);
+
+        const grid = document.createElement("div");
+        Object.assign(grid.style, {
+            display: "grid", gridTemplateColumns: "repeat(9, 36px)", gap: "4px"
+        });
+
+        // Slots 0 to 8 (Hotbar)
+        for (let i = 0; i < 9; i++) {
+            grid.appendChild(this.createSlot(i));
+        }
+        this.window.appendChild(grid);
+    }
+
+    private render(state: ReturnType<typeof inventoryStore.getState>) {
+        // Toggle Visibility
+        this.backdrop.style.display = state.isOpen ? "block" : "none";
+
+        if (!state.isOpen) {
+            this.cursorItem.style.display = "none";
+            return;
+        }
+
+        // Render Cursor Item
+        if (state.cursorItem) {
+            this.cursorItem.style.display = "flex";
+            this.renderItemBlock(this.cursorItem, state.cursorItem.id, state.cursorItem.count);
+        } else {
+            this.cursorItem.style.display = "none";
+        }
+
+        // Render Slots
+        state.slots.forEach((item, index) => {
+            const slotDiv = this.slots[index];
+            if (!slotDiv) return;
+
+            // Clear old
+            slotDiv.innerHTML = "";
+
+            if (item) {
+                const itemDiv = document.createElement("div");
+                Object.assign(itemDiv.style, {
+                    width: "24px", height: "24px", margin: "2px"
+                });
+                this.renderItemBlock(itemDiv, item.id, item.count);
+                slotDiv.appendChild(itemDiv);
+            }
+        });
+    }
+
+    // Helper to render the colored block square
+    private renderItemBlock(el: HTMLElement, id: number, count: number) {
+        let color = "#ff00ff"; // Error pink
+        if (id === BLOCKS.GRASS) color = "#2d8";
+        if (id === BLOCKS.DIRT) color = "#854";
+        if (id === BLOCKS.STONE_BRICK) color = "#777";
+        if (id === BLOCKS.WOOD_PLANKS) color = "#a85";
+        if (id === BLOCKS.GLASS) color = "#adf";
+        if (id === BLOCKS.BEACON_RAY) color = "#0ff";
+        if (id === BLOCKS.BEDROCK) color = "#222";
+        if (id === BLOCKS.GRAVEL) color = "#aaa";
+        if (id === BLOCKS.WOOD_LOG) color = "#532";
+        if (id === BLOCKS.ROOF_STONE) color = "#445";
+
+        el.style.backgroundColor = color;
+        el.style.boxShadow = "inset -2px -2px rgba(0,0,0,0.3)";
+        el.style.display = "flex";
+        el.style.alignItems = "flex-end";
+        el.style.justifyContent = "flex-end";
+        
+        if (count > 1) {
+            const txt = document.createElement("span");
+            txt.textContent = count.toString();
+            txt.style.color = "white";
+            txt.style.textShadow = "1px 1px 0 #000";
+            txt.style.fontSize = "10px";
+            el.appendChild(txt);
+        }
+    }
 }
