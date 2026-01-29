@@ -1,24 +1,9 @@
 import { makeNoise2D } from "open-simplex-noise";
+import { BLOCKS } from "./blocks"; // The Single Source of Truth
 
 // --------------------------------------------------------------------------
-// 1. INTERFACES (Must be exported for main.ts and VoxelRoom.ts)
+// INTERFACES
 // --------------------------------------------------------------------------
-
-// The generator expects these IDs to be passed in from the engine/server.
-// This ensures the generator uses the exact IDs registered by the system.
-export interface BlockIDs {
-    AIR: number;
-    GRASS: number;
-    DIRT: number;
-    STONE_BRICK: number;
-    GRAVEL: number;
-    BEACON_RAY: number;
-    BEDROCK: number;
-    WOOD_PLANKS: number;
-    WOOD_LOG: number;
-    GLASS: number;
-    ROOF_STONE: number;
-}
 
 // Data calculated once per (X,Z) coordinate to optimize the Y-loop.
 export interface ColumnData {
@@ -32,13 +17,12 @@ export interface ColumnData {
 }
 
 // --------------------------------------------------------------------------
-// 2. TOWN GENERATOR CLASS
+// TOWN GENERATOR CLASS
 // --------------------------------------------------------------------------
 export class TownGenerator {
     width: number;
     depth: number;
     seed: number;
-    ids: BlockIDs;
     noise2D: (x: number, y: number) => number;
 
     // Stores house foundation locations using packed coordinates
@@ -65,11 +49,10 @@ export class TownGenerator {
     private readonly ring2MinSq: number; private readonly ring2MaxSq: number;
     private readonly ring3MinSq: number; private readonly ring3MaxSq: number;
 
-    constructor(width: number, depth: number, seed: number, ids: BlockIDs) {
+    constructor(width: number, depth: number, seed: number) {
         this.width = width;
         this.depth = depth;
         this.seed = seed;
-        this.ids = ids;
         
         // 1. Pre-calculate Squares to avoid Math.sqrt in loops
         this.townRadiusSq = this.townRadius ** 2;
@@ -89,13 +72,12 @@ export class TownGenerator {
     }
 
     // --------------------------------------------------------------------------
-    // 3. LAYOUT GENERATION (Runs Once)
+    // 1. LAYOUT GENERATION (Runs Once)
     // --------------------------------------------------------------------------
     private initLayout() {
         console.log("📐 Generating Giga-City Layout...");
         
         // Deterministic RNG (Linear Congruential Generator)
-        // Ensures the server and client generate the exact same houses from the seed.
         let localSeed = this.seed;
         const random = () => { 
             localSeed = (localSeed * 9301 + 49297) % 233280; 
@@ -162,13 +144,13 @@ export class TownGenerator {
     }
 
     // --------------------------------------------------------------------------
-    // 4. COLUMN ANALYSIS (Called once per X,Z)
+    // 2. COLUMN ANALYSIS (Called once per X,Z)
     // --------------------------------------------------------------------------
     public getColumnInfo(x: number, z: number): ColumnData {
         const distSq = x*x + z*z;
         
         let height = this.baseHeight;
-        let surface = this.ids.GRASS;
+        let surface = BLOCKS.GRASS;
         let isHouse = false;
         let isWall = false;
         let isRoad = false;
@@ -181,13 +163,13 @@ export class TownGenerator {
         // B. Town Interior
         if (distSq <= this.townRadiusSq) {
             if (distSq <= this.plazaRadiusSq) {
-                surface = this.ids.STONE_BRICK; // Plaza
+                surface = BLOCKS.STONE_BRICK; // Plaza
             } else if (this.isRoad(x, z)) {
-                surface = this.ids.GRAVEL; // Roads
+                surface = BLOCKS.GRAVEL; // Roads
                 isRoad = true;
             } else if (this.houseMap.has(this.pack(x, z))) {
                 isHouse = true; 
-                surface = this.ids.WOOD_PLANKS; // House Floor
+                surface = BLOCKS.WOOD_PLANKS; // House Floor
                 // Calculate deterministic hash for window placement
                 houseHash = Math.abs((x * 73856093) ^ (z * 19349663));
             }
@@ -197,11 +179,11 @@ export class TownGenerator {
         else if (distSq <= this.wallOuterRadiusSq) {
             // Gates on main axes
             if (Math.abs(x) <= 12 || Math.abs(z) <= 12) {
-                surface = this.ids.GRAVEL;
+                surface = BLOCKS.GRAVEL;
             } else {
                 isWall = true;
                 height = this.baseHeight + this.wallHeight;
-                surface = this.ids.STONE_BRICK;
+                surface = BLOCKS.STONE_BRICK;
             }
         }
         
@@ -215,16 +197,16 @@ export class TownGenerator {
     }
 
     // --------------------------------------------------------------------------
-    // 5. BLOCK RESOLUTION (Called for every Y block)
+    // 3. BLOCK RESOLUTION (Called for every Y block)
     // --------------------------------------------------------------------------
     public resolveBlockID(y: number, col: ColumnData): number {
         
         // 1. Bedrock & Void
-        if (y === 0) return this.ids.BEDROCK;
-        if (y < 0) return this.ids.AIR;
+        if (y === 0) return BLOCKS.BEDROCK;
+        if (y < 0) return BLOCKS.AIR;
 
         // 2. Beacon Beam
-        if (col.isBeacon && y > this.baseHeight && y < 200) return this.ids.BEACON_RAY;
+        if (col.isBeacon && y > this.baseHeight && y < 200) return BLOCKS.BEACON_RAY;
 
         // 3. 3D House Generation
         if (col.isHouse && y > col.height) {
@@ -233,31 +215,31 @@ export class TownGenerator {
             // Walls (Blocks 1-4)
             if (h <= 4) {
                 // Window Logic: Eye level (h=2) + Hash Check
-                if (h === 2 && col.houseHash % 3 === 0) return this.ids.GLASS;
-                return this.ids.WOOD_PLANKS;
+                if (h === 2 && col.houseHash % 3 === 0) return BLOCKS.GLASS;
+                return BLOCKS.WOOD_PLANKS;
             }
             // Roof (Block 5)
-            if (h === 5) return this.ids.ROOF_STONE;
+            if (h === 5) return BLOCKS.ROOF_STONE;
             
-            return this.ids.AIR;
+            return BLOCKS.AIR;
         }
 
         // 4. Sky
-        if (y > col.height) return this.ids.AIR;
+        if (y > col.height) return BLOCKS.AIR;
 
         // 5. Surface
         if (y === col.height) return col.surface;
 
         // 6. Wall Interiors
-        if (col.isWall) return this.ids.STONE_BRICK;
+        if (col.isWall) return BLOCKS.STONE_BRICK;
 
         // 7. Underground (Dirt then Stone)
-        if (col.height - y < 4) return this.ids.DIRT;
-        return this.ids.STONE_BRICK;
+        if (col.height - y < 4) return BLOCKS.DIRT;
+        return BLOCKS.STONE_BRICK;
     }
 
     // --------------------------------------------------------------------------
-    // 6. HELPERS (Server & Utils)
+    // 4. HELPERS (Server & Utils)
     // --------------------------------------------------------------------------
     
     // Server wrapper for single block access

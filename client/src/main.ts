@@ -1,7 +1,8 @@
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
-import { TownGenerator, BlockIDs } from "./TownGenerator";
+import { TownGenerator } from "./TownGenerator";
+import { BLOCKS } from "./blocks"; // The Single Source of Truth
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
@@ -155,7 +156,7 @@ async function main() {
   (window as any).noa = noa;
 
   // ========================================================================
-  // 2. REGISTER BLOCKS & MATERIALS (FIXED: FORCED NUMERIC IDs)
+  // 2. REGISTER BLOCKS & MATERIALS
   // ========================================================================
   // Define Materials
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
@@ -169,58 +170,26 @@ async function main() {
   noa.registry.registerMaterial("beacon", { color: [0.2, 1.0, 1.0], alpha: 0.6 }); 
   noa.registry.registerMaterial("glass", { color: [0.8, 0.9, 1.0], alpha: 0.4 });
 
-  // ⚠️ MANUAL ID ASSIGNMENT
-  // We explicitly define integers here. Do NOT rely on the engine's return value for the ID logic.
-  const ID_GRASS = 1;
-  const ID_DIRT = 2;
-  const ID_STONE = 3;
-  const ID_GRAVEL = 4;
-  const ID_BEACON = 5;
-  const ID_BEDROCK = 6;
-  const ID_WOOD = 7;
-  const ID_LOG = 8;
-  const ID_GLASS = 9;
-  const ID_ROOF = 10;
+  // ⚠️ CRITICAL: Register blocks using the SHARED numeric IDs
+  noa.registry.registerBlock(BLOCKS.GRASS, { material: "grass" });
+  noa.registry.registerBlock(BLOCKS.DIRT, { material: "dirt" });
+  noa.registry.registerBlock(BLOCKS.STONE_BRICK, { material: "stone_brick" });
+  noa.registry.registerBlock(BLOCKS.GRAVEL, { material: "gravel" });
+  noa.registry.registerBlock(BLOCKS.BEACON_RAY, { material: "beacon", opaque: false });
+  noa.registry.registerBlock(BLOCKS.BEDROCK, { material: "bedrock" });
+  noa.registry.registerBlock(BLOCKS.WOOD_PLANKS, { material: "wood_plank" });
+  noa.registry.registerBlock(BLOCKS.WOOD_LOG, { material: "wood_log" });
+  noa.registry.registerBlock(BLOCKS.GLASS, { material: "glass", opaque: false });
+  noa.registry.registerBlock(BLOCKS.ROOF_STONE, { material: "roof" });
 
-  // Register them using these IDs
-  noa.registry.registerBlock(ID_GRASS, { material: "grass" });
-  noa.registry.registerBlock(ID_DIRT, { material: "dirt" });
-  noa.registry.registerBlock(ID_STONE, { material: "stone_brick" });
-  noa.registry.registerBlock(ID_GRAVEL, { material: "gravel" });
-  noa.registry.registerBlock(ID_BEACON, { material: "beacon", opaque: false });
-  noa.registry.registerBlock(ID_BEDROCK, { material: "bedrock" });
-  noa.registry.registerBlock(ID_WOOD, { material: "wood_plank" });
-  noa.registry.registerBlock(ID_LOG, { material: "wood_log" });
-  noa.registry.registerBlock(ID_GLASS, { material: "glass", opaque: false });
-  noa.registry.registerBlock(ID_ROOF, { material: "roof" });
-
-  // Construct the map using the forced Integers
-  const blockIDs: BlockIDs = {
-    AIR: 0,
-    GRASS: ID_GRASS,
-    DIRT: ID_DIRT,
-    STONE_BRICK: ID_STONE,
-    GRAVEL: ID_GRAVEL,
-    BEACON_RAY: ID_BEACON,
-    BEDROCK: ID_BEDROCK,
-    WOOD_PLANKS: ID_WOOD,
-    WOOD_LOG: ID_LOG,
-    GLASS: ID_GLASS,
-    ROOF_STONE: ID_ROOF,
-  };
-
-  // DEBUG CHECK: Ensure these are numbers!
-  console.log("✅ Block IDs registered:", blockIDs);
-  if (typeof blockIDs.GRASS !== 'number') {
-      console.error("❌ CRITICAL ERROR: IDs are strings! World will be broken.");
-      setHud(["CRITICAL ERROR", "ID Mismatch", "Check Console"]);
-  }
+  console.log("✅ Blocks registered using shared ID map.");
 
   // ========================================================================
-  // 3. INITIALIZE GENERATOR WITH IDs
+  // 3. INITIALIZE GENERATOR
   // ========================================================================
   console.time("GenInit");
-  const townGen = new TownGenerator(4000, 4000, 12345, blockIDs);
+  // We do NOT pass IDs here anymore, the generator imports BLOCKS directly.
+  const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
 
   const TOWN_RADIUS_LIMIT = townGen.townRadius + townGen.wallThickness; 
@@ -241,12 +210,13 @@ async function main() {
   });
 
   // ========================================================================
-  // 5. TICK LOOP
+  // 5. TICK LOOP (Physics & HUD)
   // ========================================================================
   noa.on('tick', () => {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
+    // World Border Physics Clamp
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -283,7 +253,7 @@ async function main() {
         const chunkY = cy * chunkSize;
         const chunkZ = cz * chunkSize;
 
-        // Sampling Logger: Prints 1% of chunk requests to console for debugging
+        // Logging sampler: Prints 1% of chunk requests to console for debugging
         if (Math.random() < 0.01) { 
              console.log(`[ChunkGen] Generating cx=${cx} cy=${cy} cz=${cz}`);
         }
@@ -302,9 +272,10 @@ async function main() {
                     // 2. Resolve Block ID
                     const id = townGen.resolveBlockID(globalY, colData);
                     
-                    // 3. Set the Block (Ensure it is a valid Number)
-                    // If the generator returns garbage, default to Grass so we see SOMETHING.
-                    const safeID = (typeof id === 'number' && isFinite(id)) ? id : ID_GRASS;
+                    // 3. Set Block
+                    // Safety check: Ensure valid number. 
+                    // Using imported BLOCKS guarantees consistency.
+                    const safeID = (typeof id === 'number' && isFinite(id)) ? id : BLOCKS.GRASS;
                     
                     dataArr.set(x, y, z, safeID);
                 }
@@ -315,7 +286,7 @@ async function main() {
       } catch (e) {
           console.error("❌ Generator Crashed at", cx, cy, cz, e);
           // Fallback to solid block so user doesn't fall into void
-          for (let i = 0; i < dataArr.data.length; i++) dataArr.data[i] = ID_GRASS;
+          for (let i = 0; i < dataArr.data.length; i++) dataArr.data[i] = BLOCKS.GRASS;
           noa.world.setChunkData(requestID, dataArr, null);
       }
     }
@@ -403,16 +374,17 @@ async function main() {
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
+  // Networked Actions
   noa.inputs.down.on("fire", () => {
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
       const id = noa.getBlock(pos[0], pos[1], pos[2]);
-      if (id === blockIDs.BEDROCK) return;
+      if (id === BLOCKS.BEDROCK) return;
       if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: blockIDs.AIR });
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.AIR });
       }
-      noa.setBlock(blockIDs.AIR, pos[0], pos[1], pos[2]);
+      noa.setBlock(BLOCKS.AIR, pos[0], pos[1], pos[2]);
     }
   });
 
@@ -421,9 +393,9 @@ async function main() {
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
       if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: blockIDs.GRASS });
+        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.GRASS });
       }
-      noa.setBlock(blockIDs.GRASS, pos[0], pos[1], pos[2]);
+      noa.setBlock(BLOCKS.GRASS, pos[0], pos[1], pos[2]);
     }
   });
 
@@ -466,6 +438,9 @@ async function main() {
     console.log(`[ZONE DEBUG] x=${p[0].toFixed(1)} z=${p[2].toFixed(1)} => ${zone}`);
   }, 1000);
 
+  // ========================================================================
+  // 11. RESIZE HANDLER
+  // ========================================================================
   const resizeHands = () => {
     const rawSize = Math.min(window.innerWidth * 0.35, 400);
     const size = Math.floor(rawSize * Math.min(1.25, window.devicePixelRatio || 1));
