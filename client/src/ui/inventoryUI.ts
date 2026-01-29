@@ -9,14 +9,14 @@ export class InventoryUI {
     private slots: HTMLDivElement[] = [];
 
     constructor() {
-        // 1. Create Backdrop (Dark background)
+        // 1. Create Backdrop
         this.backdrop = document.createElement("div");
         Object.assign(this.backdrop.style, {
             position: "fixed", top: "0", left: "0", width: "100vw", height: "100vh",
             backgroundColor: "rgba(0, 0, 0, 0.75)", display: "none", zIndex: "2000"
         });
 
-        // 2. Create Window (The grey box)
+        // 2. Create Window
         this.window = document.createElement("div");
         Object.assign(this.window.style, {
             position: "absolute", top: "50%", left: "50%",
@@ -32,7 +32,7 @@ export class InventoryUI {
         this.createMainSection(); // 9x3 Grid
         this.createHotbarSection(); // 1x9 Grid
 
-        // 4. Create Floating Cursor Item (Follows Mouse)
+        // 4. Create Floating Cursor Item
         this.cursorItem = document.createElement("div");
         Object.assign(this.cursorItem.style, {
             position: "fixed", width: "32px", height: "32px", pointerEvents: "none",
@@ -47,7 +47,6 @@ export class InventoryUI {
             this.cursorItem.style.top = `${e.clientY + 10}px`;
         });
 
-        // 6. Subscribe to Store
         inventoryStore.subscribe((state) => {
             this.render(state);
         });
@@ -61,14 +60,11 @@ export class InventoryUI {
             position: "relative", cursor: "pointer"
         });
 
-        // Click Handler
         slot.addEventListener("mousedown", (e) => {
             e.preventDefault();
-            // 0 = Left Click, 2 = Right Click
             inventoryStore.getState().clickSlot(slotIndex, e.button === 2);
         });
 
-        // Context Menu prevent (for right click)
         slot.addEventListener("contextmenu", (e) => e.preventDefault());
 
         this.slots[slotIndex] = slot;
@@ -81,13 +77,11 @@ export class InventoryUI {
         container.style.gap = "4px";
         container.style.marginBottom = "10px";
         
-        // Head, Chest, Legs, Feet
         container.appendChild(this.createSlot(ARMOR_SLOTS.HEAD));
         container.appendChild(this.createSlot(ARMOR_SLOTS.CHEST));
         container.appendChild(this.createSlot(ARMOR_SLOTS.LEGS));
         container.appendChild(this.createSlot(ARMOR_SLOTS.FEET));
         
-        // Labels for clarity
         const label = document.createElement("div");
         label.textContent = "Armor";
         label.style.fontFamily = "monospace";
@@ -103,7 +97,6 @@ export class InventoryUI {
             display: "grid", gridTemplateColumns: "repeat(9, 36px)", gap: "4px"
         });
 
-        // Slots 9 to 35 (Inventory)
         for (let i = 9; i < 36; i++) {
             grid.appendChild(this.createSlot(i));
         }
@@ -122,7 +115,6 @@ export class InventoryUI {
             display: "grid", gridTemplateColumns: "repeat(9, 36px)", gap: "4px"
         });
 
-        // Slots 0 to 8 (Hotbar)
         for (let i = 0; i < 9; i++) {
             grid.appendChild(this.createSlot(i));
         }
@@ -130,7 +122,6 @@ export class InventoryUI {
     }
 
     private render(state: ReturnType<typeof inventoryStore.getState>) {
-        // Toggle Visibility
         this.backdrop.style.display = state.isOpen ? "block" : "none";
 
         if (!state.isOpen) {
@@ -138,7 +129,6 @@ export class InventoryUI {
             return;
         }
 
-        // Render Cursor Item
         if (state.cursorItem) {
             this.cursorItem.style.display = "flex";
             this.renderItemBlock(this.cursorItem, state.cursorItem.id, state.cursorItem.count);
@@ -146,12 +136,10 @@ export class InventoryUI {
             this.cursorItem.style.display = "none";
         }
 
-        // Render Slots
         state.slots.forEach((item, index) => {
             const slotDiv = this.slots[index];
             if (!slotDiv) return;
 
-            // Clear old
             slotDiv.innerHTML = "";
 
             if (item) {
@@ -165,9 +153,8 @@ export class InventoryUI {
         });
     }
 
-    // Helper to render the colored block square
     private renderItemBlock(el: HTMLElement, id: number, count: number) {
-        let color = "#ff00ff"; // Error pink
+        let color = "#ff00ff";
         if (id === BLOCKS.GRASS) color = "#2d8";
         if (id === BLOCKS.DIRT) color = "#854";
         if (id === BLOCKS.STONE_BRICK) color = "#777";
