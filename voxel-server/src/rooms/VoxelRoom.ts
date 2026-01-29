@@ -1,11 +1,27 @@
-import { Room, Client } from "@colyseus/core";
+import { Room, Client } from "colyseus";
 import { VoxelState } from "./state/VoxelState";
 import { PlayerState } from "./state/PlayerState";
 
 import { keyFromChunk } from "../voxel/chunkKey";
-import { ChunkStore } from "../voxel/chunkStore";
-import { clamp, isFiniteNumber } from "../voxel/validate";
+import { ChunkStore } from "../voxel/ChunkStore"; // Ensure casing matches filename
 import { TownGenerator } from "../voxel/TownGenerator";
+
+// ----------------------------------------------------------------------
+// 1. SERVER-SIDE BLOCK IDs (Must match Client IDs)
+// ----------------------------------------------------------------------
+const SERVER_IDS = {
+  AIR: 0,
+  GRASS: 1,
+  DIRT: 2,
+  STONE_BRICK: 3,
+  GRAVEL: 4,
+  BEACON_RAY: 5,
+  BEDROCK: 6,
+  WOOD_PLANKS: 7,
+  WOOD_LOG: 8,
+  GLASS: 9,
+  ROOF_STONE: 10,
+};
 
 // ----------------------------------------------------------------------
 // MESSAGE TYPES
@@ -19,7 +35,6 @@ export class VoxelRoom extends Room<VoxelState> {
   state = new VoxelState();
 
   // OPTIMIZATION: This now stores ONLY modified chunks/blocks
-  // If a chunk is not in here, it is purely procedural (implicit).
   private chunks = new ChunkStore();
 
   // which chunk-keys each client is currently subscribed to
@@ -32,15 +47,17 @@ export class VoxelRoom extends Room<VoxelState> {
     this.setPatchRate(20); 
 
     // ==================================================================
-    // 1. INITIALIZE GENERATOR
+    // 2. INITIALIZE GENERATOR WITH IDs
     // ==================================================================
     console.log("🏙️ Initializing Town Generator (Server)...");
-    // We use the same seed/size as client so the math matches 1:1
-    this.townGen = new TownGenerator(4000, 4000, 12345);
+    
+    // FIX: Pass SERVER_IDS as the 4th argument!
+    this.townGen = new TownGenerator(4000, 4000, 12345, SERVER_IDS);
+    
     console.log("✅ Server Generator Ready (Implicit Mode).");
     
     // ==================================================================
-    // 2. MESSAGE HANDLERS
+    // 3. MESSAGE HANDLERS
     // ==================================================================
     this.onMessage("move", (client, msg: MoveMsg) => this.handleMove(client, msg));
     this.onMessage("subscribeChunks", (client, msg: SubscribeMsg) => this.handleSubscribe(client, msg));
@@ -61,10 +78,8 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // HELPER: IMPLICIT BLOCK CHECK (For Anti-Cheat/Collision)
+  // HELPER: IMPLICIT BLOCK CHECK
   // ==================================================================
-  // If we need to know what block is at X,Y,Z, we check edits first,
-  // then fall back to the generator.
   private getWorldBlock(x: number, y: number, z: number): number {
       // 1. Check if user edited this block (Sparse storage)
       if (this.chunks.hasBlock(x, y, z)) {
@@ -83,8 +98,6 @@ export class VoxelRoom extends Room<VoxelState> {
 
     if (![msg.x, msg.y, msg.z].every(isFiniteNumber)) return;
 
-    // Optional: Add server-side collision validation here using this.getWorldBlock()
-    
     p.x = clamp(msg.x, -1e6, 1e6);
     p.y = clamp(msg.y, -1e6, 1e6);
     p.z = clamp(msg.z, -1e6, 1e6);
@@ -94,7 +107,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // LOGIC: CHUNK SUBSCRIPTION (Lightweight)
+  // LOGIC: CHUNK SUBSCRIPTION
   // ==================================================================
   private handleSubscribe(client: Client, msg: SubscribeMsg) {
     const set = this.subscriptions.get(client.sessionId);
@@ -113,14 +126,8 @@ export class VoxelRoom extends Room<VoxelState> {
     for (let x = cx - r; x <= cx + r; x++) {
       for (let z = cz - r; z <= cz + r; z++) {
         for (let y = Y_MIN; y <= Y_MAX; y++) {
-          
           const key = keyFromChunk(x, y, z);
           wanted.add(key);
-          
-          // OPTIMIZATION: We DO NOT generate chunks here anymore.
-          // We simply track that the user is interested in this area.
-          // If there are edits in this chunk, we could send them now (delta compression),
-          // but for this implementation, we just track interest.
         }
       }
     }
@@ -129,7 +136,7 @@ export class VoxelRoom extends Room<VoxelState> {
   }
 
   // ==================================================================
-  // LOGIC: BLOCK EDITING (Sparse Storage)
+  // LOGIC: BLOCK EDITING
   // ==================================================================
   private handleSetBlock(client: Client, msg: SetBlockMsg) {
     if (![msg.x, msg.y, msg.z, msg.id].every(isFiniteNumber)) return;
@@ -137,8 +144,6 @@ export class VoxelRoom extends Room<VoxelState> {
     // 1. Ensure chunk exists in storage (Lazy Creation)
     const chunkKey = this.chunks.keyForBlock(msg.x, msg.y, msg.z);
     
-    // If this is the first time ANYONE has touched this chunk, create a container for it.
-    // Note: This container should start empty, not filled with generator data.
     if (!this.chunks.has(chunkKey)) {
         this.chunks.create(chunkKey); 
     }
@@ -150,7 +155,6 @@ export class VoxelRoom extends Room<VoxelState> {
     const changedKeys = this.chunks.getTouchedChunkKeys(msg.x, msg.y, msg.z);
 
     // 3. Broadcast change to relevant players
-    // This is the "Delta Update" that keeps clients in sync
     for (const [sessionId, sub] of this.subscriptions.entries()) {
       if (changedKeys.some(k => sub.has(k))) {
         const c = this.clients.find(c => c.sessionId === sessionId);
@@ -158,4 +162,15 @@ export class VoxelRoom extends Room<VoxelState> {
       }
     }
   }
+}
+
+// ==================================================================
+// INLINED VALIDATION HELPERS (To prevent missing module errors)
+// ==================================================================
+function isFiniteNumber(val: any): val is number {
+  return typeof val === "number" && isFinite(val);
+}
+
+function clamp(val: number, min: number, max: number): number {
+  return Math.min(Math.max(val, min), max);
 }
