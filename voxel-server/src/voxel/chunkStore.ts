@@ -68,7 +68,7 @@ export class ChunkStore {
     const ly = ((y % this.chunkSize) + this.chunkSize) % this.chunkSize;
     const lz = ((z % this.chunkSize) + this.chunkSize) % this.chunkSize;
 
-    // Your original indexing math: x + size * (y + size * z)
+    // Your originawl indexing math: x + size * (y + size * z)
     const idx = lx + this.chunkSize * (ly + this.chunkSize * lz);
     
     return c.blocks[idx];
