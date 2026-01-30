@@ -5,7 +5,8 @@ import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
 import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
 import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
-import { InventoryUI } from "./ui/inventoryUI";
+import { InventoryUI } from "./ui/InventoryUI";     // NEW VISUALS
+
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
@@ -150,12 +151,15 @@ async function main() {
   // ========================================================================
   // 4. UI & INPUTS
   // ========================================================================
-  new HotbarUI(); // Mounts the Hotbar Visuals
-new InventoryUI();  // Big Window (Visible on 'E')
+  new HotbarUI();     // Bottom bar (Always visible)
+  new InventoryUI();  // Big Window (Visible on 'E')
+
   // Standard Inputs
-  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
-  noa.inputs.bind('alt-fire', 'KeyR'); 
-  noa.inputs.bind('home', 'KeyG'); noa.inputs.bind('wall', 'KeyH'); noa.inputs.bind('wild', 'KeyJ');
+  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f'); // Break
+  noa.inputs.bind('alt-fire', 'KeyR'); // Place
+  noa.inputs.bind('home', 'KeyG'); 
+  noa.inputs.bind('wall', 'KeyH'); 
+  noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
   noa.inputs.bind('scan', 'KeyX'); // Scanner Tool
   noa.inputs.bind('fill_inv', 'KeyI'); // Debug Inventory
@@ -350,7 +354,7 @@ new InventoryUI();  // Big Window (Visible on 'E')
   });
 
   // ========================================================================
-  // 9. COLYSEUS NETWORKING & GAMEPLAY
+  // 9. COLYSEUS NETWORKING & MULTIPLAYER
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
@@ -359,12 +363,52 @@ new InventoryUI();  // Big Window (Visible on 'E')
 
   console.log(`🟢 Connected: ${room.sessionId}`);
 
+  // Track other player entities
+  const otherPlayers: Record<string, number> = {};
+
+  // --- LISTEN FOR OTHER PLAYERS ---
+  room.state.players.onAdd((player: any, sessionId: string) => {
+    if (sessionId === room.sessionId) return; // Ignore self
+
+    console.log("👤 Player joined:", sessionId);
+
+    // Create a Red Box Mesh for the player
+    // (In future this can be replaced with a SkinViewer mesh)
+    const scene = noa.rendering.getScene();
+    const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
+    const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
+    mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
+    mesh.material = mat;
+
+    // Create Entity
+    // [x,y,z], width, height, mesh, offset, doPhysics
+    const eid = noa.entities.add([player.x, player.y, player.z], 0.8, 1.8, mesh, [0, 0.9, 0], false, false);
+    otherPlayers[sessionId] = eid;
+
+    // Listen for movement updates
+    player.onChange(() => {
+        const targetEid = otherPlayers[sessionId];
+        if (targetEid !== undefined) {
+            // Snap position (can add interpolation later)
+            noa.entities.setPosition(targetEid, [player.x, player.y, player.z]);
+        }
+    });
+  });
+
+  room.state.players.onRemove((player: any, sessionId: string) => {
+    console.log("✌️ Player left:", sessionId);
+    const eid = otherPlayers[sessionId];
+    if (eid !== undefined) {
+        noa.entities.deleteEntity(eid);
+        delete otherPlayers[sessionId];
+    }
+  });
+
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
   // --- BLOCK BREAKING (MINE TO INVENTORY) ---
   noa.inputs.down.on("fire", () => {
-    // If inventory open, ignore click
     if (inventoryStore.getState().isOpen) return;
 
     swingHand(); 
@@ -392,7 +436,6 @@ new InventoryUI();  // Big Window (Visible on 'E')
 
   // --- BLOCK PLACING (FROM HOTBAR) ---
   noa.inputs.down.on("alt-fire", () => {
-    // If inventory open, ignore click
     if (inventoryStore.getState().isOpen) return;
 
     swingHand();
@@ -410,12 +453,17 @@ new InventoryUI();  // Big Window (Visible on 'E')
         room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: item.id });
       }
       noa.setBlock(item.id, pos[0], pos[1], pos[2]);
-
-      // 4. Consume Item (Client-Side Prediction)
-      // For now, infinite items in creative. Uncomment to consume:
-      // inventoryStore.getState().setSlot(inventoryStore.getState().selectedSlot, item.id, item.count - 1);
     }
   });
+
+  // --- SEND MY POSITION (CRITICAL FOR MULTIPLAYER) ---
+  setInterval(() => {
+    if (room && room.connection && room.connection.isOpen) {
+        const p = noa.entities.getPosition(noa.playerEntity);
+        // Send x, y, z to server so others see us
+        room.send("move", { x: p[0], y: p[1], z: p[2] });
+    }
+  }, 100);
 
   // ========================================================================
   // 10. SERVER SYNC & ZONE LOGIC
