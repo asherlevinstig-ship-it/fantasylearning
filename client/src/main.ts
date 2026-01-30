@@ -1,5 +1,5 @@
 // ==========================================================================
-// main.ts - Voxel Game Client
+// main.ts - Voxel Game Client (Schema Reflection Mode)
 // ==========================================================================
 
 import { Client } from "colyseus.js";
@@ -10,92 +10,6 @@ import { BLOCKS } from "./blocks";
 import { inventoryStore } from "./store/inventory";
 import { HotbarUI } from "./ui/HotbarUI";
 import { InventoryUI } from "./ui/inventoryUI";
-import { MapSchema } from "@colyseus/schema";
-
-// ==========================================================================
-// SCHEMA IMPORTS - CRITICAL SECTION
-// ==========================================================================
-import { VoxelState, PlayerState } from "./schema/GameSchema";
-
-// 🔥 FORCE BUNDLER TO KEEP SCHEMA CLASSES (Anti-Tree-Shaking)
-// This creates a side-effect that bundlers cannot remove
-const _forceSchemaInclusion = () => {
-    const p = new PlayerState();
-    const v = new VoxelState();
-    return [p.x, v.players];
-};
-_forceSchemaInclusion();
-
-// Explicit registration check - runs immediately
-if (!(PlayerState as any)._schema) {
-    console.error("🚨 FATAL: PlayerState schema metadata missing! Check tsconfig & vite.config");
-}
-if (!(VoxelState as any)._schema) {
-    console.error("🚨 FATAL: VoxelState schema metadata missing! Check tsconfig & vite.config");
-}
-
-// ==========================================================================
-// SCHEMA DIAGNOSTICS
-// ==========================================================================
-function debugSchemaDefinitions(): boolean {
-    console.group("🕵️ SCHEMA DEEP DIVE");
-    let allGood = true;
-
-    // Check PlayerState
-    try {
-        console.log("Checking PlayerState...");
-        const pSchema = (PlayerState as any)._schema;
-        const pDefinition = (PlayerState as any)._definition;
-        
-        if (!pSchema && !pDefinition) {
-            console.error("❌ PlayerState has NO schema definitions.");
-            console.error("   This means decorators were stripped or not processed.");
-            allGood = false;
-        } else {
-            const keys = Object.keys(pSchema || pDefinition?.schema || {});
-            console.log("✅ PlayerState Schema Found:", keys);
-        }
-    } catch (e) {
-        console.error("💥 Error checking PlayerState:", e);
-        allGood = false;
-    }
-
-    // Check VoxelState
-    try {
-        console.log("Checking VoxelState...");
-        const vSchema = (VoxelState as any)._schema;
-        const vDefinition = (VoxelState as any)._definition;
-        
-        if (!vSchema && !vDefinition) {
-            console.error("❌ VoxelState has NO schema definitions.");
-            allGood = false;
-        } else {
-            const keys = Object.keys(vSchema || vDefinition?.schema || {});
-            console.log("✅ VoxelState Schema Found:", keys);
-        }
-    } catch (e) {
-        console.error("💥 Error checking VoxelState:", e);
-        allGood = false;
-    }
-
-    // Instantiation Test
-    try {
-        const testState = new VoxelState();
-        console.log("Local Instance Test:", testState);
-        if (testState.players instanceof MapSchema) {
-            console.log("✅ Local VoxelState.players IS a MapSchema.");
-        } else {
-            console.error("❌ Local VoxelState.players is NOT a MapSchema:", testState.players);
-            allGood = false;
-        }
-    } catch (e) {
-        console.error("💥 Error instantiating VoxelState:", e);
-        allGood = false;
-    }
-
-    console.groupEnd();
-    return allGood;
-}
 
 // ==========================================================================
 // HUD HELPER
@@ -223,13 +137,7 @@ function startThrottledRender(viewer: SkinViewer, fps = 30): void {
 // MAIN APPLICATION
 // ==========================================================================
 async function main(): Promise<void> {
-    console.log("🚀 Starting Client...");
-
-    // Run diagnostics first
-    const schemaOK = debugSchemaDefinitions();
-    if (!schemaOK) {
-        console.warn("⚠️ Schema issues detected - multiplayer sync may fail!");
-    }
+    console.log("🚀 Starting Client (Schema Reflection Mode)...");
 
     setHud(["Initializing Engine..."]);
     createBiomeUI();
@@ -506,49 +414,52 @@ async function main(): Promise<void> {
     });
 
     // ======================================================================
-    // 9. COLYSEUS NETWORKING
+    // 9. COLYSEUS NETWORKING (Schema Reflection Mode)
     // ======================================================================
     setHud(["Connecting..."]);
     const client = new Client(window.location.origin);
 
-    // Join with schema class for proper deserialization
-    const room = await client.joinOrCreate<VoxelState>("voxel", {}, VoxelState);
+    // Join WITHOUT passing schema class - server sends schema via reflection
+    const room = await client.joinOrCreate("voxel", {});
     (window as any).room = room;
 
     console.log(`🟢 Connected: ${room.sessionId}`);
 
-    // Debug state after connection
-    console.log("📡 Remote State:", room.state);
-    console.log("   Has players?", !!room.state.players);
-    if (room.state.players) {
-        console.log("   Players Type:", room.state.players.constructor.name);
-        console.log("   Is MapSchema?", room.state.players instanceof MapSchema);
-    } else {
-        console.error("❌ room.state.players is UNDEFINED.");
-    }
-
     const otherPlayers: Record<string, number> = {};
 
-    // Player listener registration
-    const registerPlayerListeners = (): void => {
-        if (!room.state.players) {
-            console.warn("⚠️ 'players' collection missing from state.");
+    // Wait for state to initialize, then register listeners
+    room.onStateChange.once((state: any) => {
+        console.log("📡 State received via reflection:", state);
+        console.log("   State keys:", Object.keys(state));
+
+        if (!state.players) {
+            console.error("❌ No 'players' collection in state!");
             return;
         }
 
-        if (typeof room.state.players.onAdd !== "function") {
-            console.error("❌ CRITICAL: 'players' is still a plain object! Schema decoding failed.");
-            console.error("Dump:", room.state.players);
+        console.log("   players type:", state.players.constructor.name);
+        console.log("   players size:", state.players.size);
+
+        // Verify onAdd exists (it should with reflection)
+        if (typeof state.players.onAdd !== "function") {
+            console.error("❌ state.players.onAdd is not a function!");
+            console.error("   Available methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(state.players)));
             return;
         }
 
         console.log("✅ Registering player listeners...");
 
-        room.state.players.onAdd((player: PlayerState, sessionId: string) => {
-            if (sessionId === room.sessionId) return;
+        // Handle new players joining
+        state.players.onAdd((player: any, sessionId: string) => {
+            console.log("👤 Player joined:", sessionId, { x: player.x, y: player.y, z: player.z });
 
-            console.log("👤 Player joined:", sessionId);
+            // Skip self
+            if (sessionId === room.sessionId) {
+                console.log("   (Skipping self)");
+                return;
+            }
 
+            // Create player mesh
             const scene = noa.rendering.getScene();
             const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
             const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
@@ -561,6 +472,7 @@ async function main(): Promise<void> {
             );
             otherPlayers[sessionId] = eid;
 
+            // Listen for position updates
             player.onChange(() => {
                 const targetEid = otherPlayers[sessionId];
                 if (targetEid !== undefined) {
@@ -569,7 +481,8 @@ async function main(): Promise<void> {
             });
         });
 
-        room.state.players.onRemove((_player: PlayerState, sessionId: string) => {
+        // Handle players leaving
+        state.players.onRemove((_player: any, sessionId: string) => {
             console.log("✌️ Player left:", sessionId);
             const eid = otherPlayers[sessionId];
             if (eid !== undefined) {
@@ -577,22 +490,34 @@ async function main(): Promise<void> {
                 delete otherPlayers[sessionId];
             }
         });
-    };
 
-    // Register listeners (with fallback)
-    if (room.state.players) {
-        registerPlayerListeners();
-    } else {
-        console.log("Waiting for state initialization...");
-        room.onStateChange.once(() => {
-            registerPlayerListeners();
+        // Check for any players already in the room
+        state.players.forEach((player: any, sessionId: string) => {
+            if (sessionId !== room.sessionId) {
+                console.log("👥 Existing player found:", sessionId);
+            }
         });
-    }
+    });
 
-    room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
-    room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
+    // Message handlers
+    room.onMessage("worldInfo", (msg) => {
+        console.log("WorldInfo:", msg);
+    });
 
-    // Break block action
+    room.onMessage("blockUpdate", (msg) => {
+        noa.setBlock(msg.id, msg.x, msg.y, msg.z);
+    });
+
+    // Error handling
+    room.onError((code, message) => {
+        console.error("❌ Room error:", code, message);
+    });
+
+    room.onLeave((code) => {
+        console.log("👋 Left room:", code);
+    });
+
+    // Break block action (fire)
     noa.inputs.down.on("fire", () => {
         if (inventoryStore.getState().isOpen) return;
 
@@ -614,7 +539,7 @@ async function main(): Promise<void> {
         }
     });
 
-    // Place block action
+    // Place block action (alt-fire)
     noa.inputs.down.on("alt-fire", () => {
         if (inventoryStore.getState().isOpen) return;
 
@@ -632,7 +557,7 @@ async function main(): Promise<void> {
         }
     });
 
-    // Position sync loop
+    // Position sync loop (send position to server)
     setInterval(() => {
         if (room?.connection?.isOpen) {
             const p = noa.entities.getPosition(noa.playerEntity);
@@ -737,6 +662,7 @@ async function main(): Promise<void> {
     resizeHands();
 
     setHud(["Ready!"]);
+    console.log("✅ Client initialization complete!");
 }
 
 // ==========================================================================
