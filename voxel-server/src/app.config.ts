@@ -12,7 +12,7 @@ export default config({
     const clientDistPath = path.resolve(
       __dirname,
       "..",          // from dist/
-      "..",          // from voxel-server/
+      "..",          // fross voxel-server/
       "client",
       "dist"
     );
