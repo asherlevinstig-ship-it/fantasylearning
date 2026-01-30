@@ -9,7 +9,7 @@ export class MyRoom extends Room<MyRoomState> {
     console.log("MyRoom created!");
     this.setState(new MyRoomState());
 
-    // 1. Handle Movement Logic
+    // 1. Handle Movesment Logic
     this.onMessage("move", (client, data) => {
         const player = this.state.players.get(client.sessionId);
         if (player) {
