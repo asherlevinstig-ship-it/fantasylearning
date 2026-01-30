@@ -11,8 +11,8 @@ import { Schema, MapSchema } from "@colyseus/schema";
 // --------------------------------------------------------------------------
 // IMPORTANT: SCHEMA IMPORT
 // --------------------------------------------------------------------------
-import { VoxelState } from "./schema/VoxelState";
-import { PlayerState } from "./schema/PlayerState";
+import { VoxelState } from "../schema/VoxelState";
+import { PlayerState } from "../schema/PlayerState";
 
 // ==========================================================================
 // 🕵️ SCHEMA DOCTOR (DEBUGGER)
