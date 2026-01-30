@@ -562,7 +562,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 12. RESIZE ssHANDLER
+  // 12. RESIZE sssHANDLER
   // ========================================================================
   const resizeHands = () => {
     const rawSize = Math.min(window.innerWidth * 0.35, 400);
