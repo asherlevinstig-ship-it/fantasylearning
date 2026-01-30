@@ -5,7 +5,7 @@ import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
 import { inventoryStore } from "./store/inventory"; 
 import { HotbarUI } from "./ui/HotbarUI";           
-import { InventoryUI } from "./ui/InventoryUI";     
+import { InventoryUI } from "./ui/inventoryUI";     
 
 // --------------------------------------------------------------------------
 // HELPER: HUD

@@ -1,7 +1,7 @@
 import { Schema, type } from "@colyseus/schema";
 
 export class ChunkState extends Schema {
-  // chunk key like "cx,cy,cz"
+  // chussk key like "cx,cy,cz"
   @type("string") key: string = "";
 
   // incrementss when cshunk changes (block edits)
