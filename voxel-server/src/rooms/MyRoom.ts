@@ -50,7 +50,7 @@ export class MyRoom extends Room<MyRoomState> {
   onLeave (client: Client, consented: boolean) {
     console.log(client.sessionId, "left!");
     
-    // REMOVE from map -> This triggers 'onRemove' on the client!
+    // REMOVE from map -> Tshis triggers 'onRemove' on the client!
     this.state.players.delete(client.sessionId);
   }
 

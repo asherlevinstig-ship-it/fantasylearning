@@ -3,12 +3,12 @@ import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
-import { inventoryStore } from "./store/inventory"; 
-import { HotbarUI } from "./ui/HotbarUI";           
-import { InventoryUI } from "./ui/inventoryUI";     
+import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
+import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
+import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
 
 // --------------------------------------------------------------------------
-// HELPER: HUD
+// HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (lines: string[]) => { 
@@ -27,7 +27,7 @@ const setHud = (lines: string[]) => {
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME UI
+// HELPER: BIOME NOTIFICATION UI
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
@@ -72,7 +72,7 @@ function showBiomeNotification(title: string, subtext: string = "") {
 }
 
 // --------------------------------------------------------------------------
-// HELPER: HANDS OVERLAY
+// HELPER: OVERLAY CANVAS (Hands)
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: { id: string; width: number; height: number; style: Partial<CSSStyleDeclaration>; }) {
   const c = document.createElement("canvas");
@@ -112,7 +112,7 @@ async function main() {
   (window as any).noa = noa;
 
   // ========================================================================
-  // 2. REGISTER BLOCKS
+  // 2. REGISTER BLOCKS & MATERIALS
   // ========================================================================
   noa.registry.registerMaterial("grass", { color: [0.2, 0.8, 0.2] });
   noa.registry.registerMaterial("dirt", { color: [0.55, 0.35, 0.17] });
@@ -139,28 +139,30 @@ async function main() {
   console.log("✅ Blocks registered.");
 
   // ========================================================================
-  // 3. GENERATOR
+  // 3. INITIALIZE GENERATOR
   // ========================================================================
   console.time("GenInit");
   const townGen = new TownGenerator(4000, 4000, 12345);
   console.timeEnd("GenInit");
+
   const TOWN_RADIUS_LIMIT = townGen.townRadius + townGen.wallThickness; 
   const WORLD_RADIUS = 2000;
 
   // ========================================================================
   // 4. UI & INPUTS
   // ========================================================================
-  new HotbarUI();     
-  new InventoryUI();  
+  new HotbarUI();     // Bottom bar (Always visible)
+  new InventoryUI();  // Big Window (Visible on 'E')
 
-  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
-  noa.inputs.bind('alt-fire', 'KeyR'); 
+  // Standard Inputs
+  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f'); // Break
+  noa.inputs.bind('alt-fire', 'KeyR'); // Place
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
-  noa.inputs.bind('scan', 'KeyX');
-  noa.inputs.bind('fill_inv', 'KeyI'); 
+  noa.inputs.bind('scan', 'KeyX'); // Scanner Tool
+  noa.inputs.bind('fill_inv', 'KeyI'); // Debug Inventory
 
   let showDebug = true; 
   noa.inputs.down.on('debug', () => {
@@ -168,27 +170,34 @@ async function main() {
       if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
   });
 
+  // --- INVENTORY CONTROLS ---
+
+  // 1. Hotbar Selection (1-9)
   for (let i = 1; i <= 9; i++) {
       noa.inputs.bind(`slot${i}`, `Digit${i}`);
       noa.inputs.down.on(`slot${i}`, () => inventoryStore.getState().selectSlot(i - 1));
   }
 
+  // 2. Mouse Wheel Scroll
   window.addEventListener("wheel", (e) => {
       const current = inventoryStore.getState().selectedSlot;
       const dir = Math.sign(e.deltaY);
       let next = current + dir;
-      if (next > 8) next = 0; if (next < 0) next = 8;
+      if (next > 8) next = 0;
+      if (next < 0) next = 8;
       inventoryStore.getState().selectSlot(next);
   });
 
+  // 3. Toggle Inventory ('E')
   window.addEventListener("keydown", (e) => {
-    if (document.activeElement?.tagName === "INPUT") return;
+    if (document.activeElement?.tagName === "INPUT") return; // Don't trigger if typing
     if (e.code === "KeyE") {
         inventoryStore.getState().toggleOpen();
         e.preventDefault();
     }
   });
 
+  // 4. Debug: Fill Inventory ('I')
   noa.inputs.down.on('fill_inv', () => {
       console.log("🎒 Refilling Inventory...");
       const { setSlot } = inventoryStore.getState();
@@ -203,16 +212,20 @@ async function main() {
       setSlot(8, BLOCKS.BEACON_RAY, 64);
   });
 
+  // --- INVENTORY STATE HANDLING (Mouse/Movement) ---
   inventoryStore.subscribe((state) => {
       if (state.isOpen) {
+          // Open: Stop movement, Unlock mouse
           noa.inputs.state.forward = false;
           noa.inputs.state.backward = false;
           noa.inputs.state.left = false;
           noa.inputs.state.right = false;
           noa.inputs.state.jump = false;
           noa.inputs.state.fire = false;
+          
           document.exitPointerLock();
       } else {
+          // Closed: Re-lock mouse
           noa.container.canvas.requestPointerLock();
       }
   });
@@ -224,6 +237,7 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
+    // Physics World Border
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -254,6 +268,7 @@ async function main() {
   // 6. CHUNK LOADING
   // ========================================================================
   const chunkSize = noa.world._chunkSize;
+  
   noa.world.on("worldDataNeeded", (requestID: string, dataArr: any, cx: number, cy: number, cz: number) => {
       try {
         const chunkX = cx; 
@@ -265,6 +280,7 @@ async function main() {
             for (let z = 0; z < chunkSize; z++) {
                 const globalZ = chunkZ + z;
                 const colData = townGen.getColumnInfo(globalX, globalZ);
+
                 for (let y = 0; y < chunkSize; y++) {
                     const globalY = chunkY + y;
                     const id = townGen.resolveBlockID(globalY, colData);
@@ -274,12 +290,14 @@ async function main() {
             }
         }
         noa.world.setChunkData(requestID, dataArr, null);
+
       } catch (e) {
           console.error("❌ Generator Crashed at", cx, cy, cz, e);
           for (let i = 0; i < dataArr.data.length; i++) dataArr.data[i] = BLOCKS.GRASS;
           noa.world.setChunkData(requestID, dataArr, null);
       }
-  });
+    }
+  );
 
   // ========================================================================
   // 7. SKINS & HANDS
@@ -332,7 +350,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 9. COLYSEUS NETWORKING (DEFENSIVE)
+  // 9. COLYSEUS NETWORKING (CRASH-PROOFED)
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
@@ -341,6 +359,7 @@ async function main() {
 
   console.log(`🟢 Connected: ${room.sessionId}`);
 
+  // Track other player entities
   const otherPlayers: Record<string, number> = {};
 
   // --- SAFE LISTENERS ---
@@ -350,19 +369,30 @@ async function main() {
           return;
       }
 
+      // VITAL CHECK: Is onAdd available? (Fixes "onAdd is not a function" crash)
+      if (typeof room.state.players.onAdd !== "function") {
+          console.error("❌ CRITICAL: Server sent 'players' as a plain object, NOT a MapSchema.");
+          console.error("👉 ACTION REQUIRED: Add '@type({ map: Player })' to 'MyRoomState.ts' on the Server.");
+          return;
+      }
+
       room.state.players.onAdd((player: any, sessionId: string) => {
-        if (sessionId === room.sessionId) return;
+        if (sessionId === room.sessionId) return; // Ignore self
+
         console.log("👤 Player joined:", sessionId);
 
+        // Create Red Box for other players
         const scene = noa.rendering.getScene();
         const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
         const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
         mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
         mesh.material = mat;
 
+        // Create Entity
         const eid = noa.entities.add([player.x, player.y, player.z], 0.8, 1.8, mesh, [0, 0.9, 0], false, false);
         otherPlayers[sessionId] = eid;
 
+        // Listen for movement
         player.onChange(() => {
             const targetEid = otherPlayers[sessionId];
             if (targetEid !== undefined) {
@@ -381,14 +411,13 @@ async function main() {
       });
   };
 
-  // If players exist, register immediately. If not, wait for first state change.
+  // Attempt registration immediately or wait for sync
   if (room.state.players) {
       registerPlayerListeners();
   } else {
       console.log("Waiting for state initialization...");
       room.onStateChange.once(() => {
-          if (room.state.players) registerPlayerListeners();
-          else console.error("❌ Fatal: Players schema missing after sync.");
+          registerPlayerListeners();
       });
   }
 
@@ -399,12 +428,16 @@ async function main() {
   // --- ACTIONS (Networked) ---
   noa.inputs.down.on("fire", () => {
     if (inventoryStore.getState().isOpen) return;
+
     swingHand(); 
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.position;
       const id = noa.getBlock(pos[0], pos[1], pos[2]);
+
       if (id === BLOCKS.BEDROCK || id === BLOCKS.AIR) return;
+
       const added = inventoryStore.getState().addItem(id, 1);
+      
       if (added) {
           if (room.connection && room.connection.isOpen) {
             room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.AIR });
@@ -416,11 +449,14 @@ async function main() {
 
   noa.inputs.down.on("alt-fire", () => {
     if (inventoryStore.getState().isOpen) return;
+
     swingHand();
     if (noa.targetedBlock) {
       const pos = noa.targetedBlock.adjacent;
       const item = inventoryStore.getState().getSelectedItem();
+
       if (!item || item.count <= 0) return;
+
       if (room.connection && room.connection.isOpen) {
         room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: item.id });
       }
@@ -428,10 +464,11 @@ async function main() {
     }
   });
 
-  // --- SEND POSITION ---
+  // --- SEND POSITION LOOP ---
   setInterval(() => {
     if (room && room.connection && room.connection.isOpen) {
         const p = noa.entities.getPosition(noa.playerEntity);
+        // Send x, y, z to server so others see us
         room.send("move", { x: p[0], y: p[1], z: p[2] });
     }
   }, 100);
@@ -471,7 +508,7 @@ async function main() {
   }, 1000);
 
   // ========================================================================
-  // 11. DEBUG SCANNER TOOL
+  // 11. DEBUG SCANNER TOOL (Press 'X')
   // ========================================================================
   noa.inputs.down.on('scan', () => {
     const p = noa.entities.getPosition(noa.playerEntity);
@@ -481,23 +518,29 @@ async function main() {
 
     console.group(`🔍 SCANNING AREA AROUND [${px}, ${py}, ${pz}]`);
     console.log(`Zone Logic Says: ${townGen.getZoneName(px, pz)}`);
+
     const radius = 5;
     const groundY = py - 1;
+
     console.log(`\n--- GROUND MAP (Y=${groundY}) ---`);
     let visualMap = "";
+
     for (let z = pz - radius; z <= pz + radius; z++) {
         let rowStr = "";
         for (let x = px - radius; x <= px + radius; x++) {
             const engineID = noa.getBlock(x, groundY, z);
             const genID = townGen.getBlockID(x, groundY, z);
+
             let char = " ";
             if (engineID === BLOCKS.AIR) char = ".";
             else if (engineID === BLOCKS.GRASS) char = "G";
             else if (engineID === BLOCKS.STONE_BRICK) char = "S";
             else if (engineID === BLOCKS.GRAVEL) char = ":";
             else char = "#";
+
             if (engineID !== genID) char = "!";
             if (x === px && z === pz) char = "@";
+
             rowStr += ` ${char} `;
         }
         visualMap += rowStr + `  (z=${z})\n`;
