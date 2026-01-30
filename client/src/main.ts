@@ -8,6 +8,11 @@ import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
 import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
 
 // --------------------------------------------------------------------------
+// IMPORTANT: SCHEMA IMPORT
+// --------------------------------------------------------------------------
+import { VoxelState } from "./schema/VoxelState";
+
+// --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
@@ -354,7 +359,11 @@ async function main() {
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
-  const room = await client.joinOrCreate("voxel");
+  
+  // ----------------------------------------------------------------------
+  // 🔥 FIX: Join with the Class Schema constructor
+  // ----------------------------------------------------------------------
+  const room = await client.joinOrCreate<VoxelState>("voxel", {}, VoxelState);
   (window as any).room = room;
 
   console.log(`🟢 Connected: ${room.sessionId}`);
@@ -369,10 +378,9 @@ async function main() {
           return;
       }
 
-      // VITAL CHECK: Is onAdd available? (Fixes "onAdd is not a function" crash)
+      // 🔍 DEBUG CHECK: Ensure we are using MapSchema
       if (typeof room.state.players.onAdd !== "function") {
-          console.error("❌ CRITICAL: Server sent 'players' as a plain object, NOT a MapSchema.");
-          console.error("👉 ACTION REQUIRED: Add '@type({ map: Player })' to 'MyRoomState.ts' on the Server.");
+          console.error("❌ CRITICAL: 'players' is still a plain object! Schema decoding failed.");
           return;
       }
 
@@ -396,6 +404,7 @@ async function main() {
         player.onChange(() => {
             const targetEid = otherPlayers[sessionId];
             if (targetEid !== undefined) {
+                // Simple snap for now - can add interpolation later
                 noa.entities.setPosition(targetEid, [player.x, player.y, player.z]);
             }
         });
