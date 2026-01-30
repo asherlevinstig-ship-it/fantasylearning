@@ -105,7 +105,7 @@ export class TownGenerator {
         const distSq = x*x + z*z;
         let height = this.baseHeight;
         
-        // FIX: Explicitly Type as number to satisfy TypeScript inference
+        // FIX: Explicitly Type as nusmber to satisfy TypeScript inference
         let surface: number = BLOCKS.GRASS; 
 
         let isHouse = false, isWall = false, isRoad = false, isBeacon = false;
