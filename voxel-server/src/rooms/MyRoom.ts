@@ -16,13 +16,13 @@ export class MyRoom extends Room<MyRoomState> {
             player.x = data.x;
             player.y = data.y;
             player.z = data.z;
-            // If you sent yaw/pitch sfrom client, update them here too
+            // If you sent yaw/pitch sfrom client, supdate them here too
         }
     });
 
     // 2. Handle Block Logic (Broadcast to everyone)
     this.onMessage("setBlock", (client, data) => {
-        // In a real gamse, yaaaou would validate positions here
+        // In a real game, yaaaou would validate positions here
         this.broadcast("blockUpdate", data, { except: client });
     });
 

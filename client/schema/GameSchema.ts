@@ -1,7 +1,9 @@
 import { Schema, MapSchema, defineTypes } from "@colyseus/schema";
 
-// 1. Define PlayerState Class
-export class PlayerState extends Schema {
+// ==========================================================
+// 1. PLAYER STATE (Implementation + Definition)
+// ==========================================================
+class PlayerStateImpl extends Schema {
     x: number = 0;
     y: number = 0;
     z: number = 0;
@@ -9,8 +11,8 @@ export class PlayerState extends Schema {
     pitch: number = 0;
 }
 
-// 2. Register PlayerState Types (IMMEDIATELY AFTER)
-defineTypes(PlayerState, {
+// 🔥 Run definition BEFORE export
+defineTypes(PlayerStateImpl, {
     x: "number",
     y: "number",
     z: "number",
@@ -18,12 +20,20 @@ defineTypes(PlayerState, {
     pitch: "number"
 });
 
-// 3. Define VoxelState Class
-export class VoxelState extends Schema {
-    players = new MapSchema<PlayerState>();
+// 🔒 Export as const to prevent tree-shaking
+export const PlayerState = PlayerStateImpl;
+
+// ==========================================================
+// 2. VOXEL STATE (Implementation + Definition)
+// ==========================================================
+class VoxelStateImpl extends Schema {
+    players = new MapSchema<PlayerStateImpl>();
 }
 
-// 4. Register VoxelState Types (IMMEDIATELY AFTER)
-defineTypes(VoxelState, {
-    players: { map: PlayerState }
+// 🔥 Run definition BEFORE export
+defineTypes(VoxelStateImpl, {
+    players: { map: PlayerStateImpl }
 });
+
+// 🔒 Export as const
+export const VoxelState = VoxelStateImpl;
