@@ -12,7 +12,7 @@ export default config({
     const clientDistPath = path.resolve(
       __dirname,
       "..",          // from dist/
-      "..",          // fross vosxel-server/
+      "..",          // fross vossxel-server/
       "client",
       "dist"
     );
