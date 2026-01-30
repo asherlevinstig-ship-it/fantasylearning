@@ -9,9 +9,9 @@ import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
 
 // --------------------------------------------------------------------------
 // IMPORTANT: SCHEMA IMPORT
-// We import the class so we can pass it to joinOrCreate for type safety
+// This file is now automatically synced from the server by your package.json
 // --------------------------------------------------------------------------
-import { VoxelState } from "../schema/GameSchema";
+import { VoxelState } from "./schema/VoxelState";
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
@@ -380,8 +380,7 @@ async function main() {
       }
 
       // 🔍 DEBUG CHECK: Ensure we are using MapSchema
-      // If the fix worked, this should be fine. If decorators are stripped, this might still break
-      // without 'defineTypes', but assuming you added defineTypes, this works.
+      // With defineTypes() and the package.json sync, this should now always be true.
       if (typeof room.state.players.onAdd !== "function") {
           console.error("❌ CRITICAL: 'players' is still a plain object! Schema decoding failed.");
           return;
@@ -562,7 +561,7 @@ async function main() {
   });
 
   // ========================================================================
-  // 12. RESIZE sssHANDLER
+  // 12. RESIZE HANDLER
   // ========================================================================
   const resizeHands = () => {
     const rawSize = Math.min(window.innerWidth * 0.35, 400);

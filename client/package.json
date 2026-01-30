@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync-schema": "mkdir -p src/schema && cp ../voxel-server/src/state/VoxelState.ts src/schema/VoxelState.ts && cp ../voxel-server/src/state/PlayerState.ts src/schema/PlayerState.ts",
+    "predev": "npm run sync-schema",
+    "prebuild": "npm run sync-schema"
   },
   "devDependencies": {
     "free-tex-packer-core": "^0.3.5",

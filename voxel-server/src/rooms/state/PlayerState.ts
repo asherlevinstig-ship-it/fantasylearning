@@ -1,10 +1,17 @@
-import { Schema, type } from "@colyseus/schema";
+import { Schema, defineTypes } from "@colyseus/schema";
 
 export class PlayerState extends Schema {
-  @type("number") x: number = 0;
-  @type("number") y: number = 0;
-  @type("number") z: number = 0;
-
-  @type("number") yaw: number = 0;
-  @type("number") pitch: number = 0;
+    x: number = 0;
+    y: number = 0;
+    z: number = 0;
+    yaw: number = 0;
+    pitch: number = 0;
 }
+
+defineTypes(PlayerState, {
+    x: "number",
+    y: "number",
+    z: "number",
+    yaw: "number",
+    pitch: "number"
+});
