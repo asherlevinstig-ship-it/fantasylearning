@@ -1,16 +1,59 @@
-import { Client } from "colyseus.js";
+import { Client, Room } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
-import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
-import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
-import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
+import { inventoryStore } from "./store/inventory"; 
+import { HotbarUI } from "./ui/HotbarUI";           
+import { InventoryUI } from "./ui/inventoryUI";     
+import { Schema, MapSchema } from "@colyseus/schema";
 
 // --------------------------------------------------------------------------
 // IMPORTANT: SCHEMA IMPORT
 // --------------------------------------------------------------------------
 import { VoxelState } from "./schema/VoxelState";
+import { PlayerState } from "./schema/PlayerState";
+
+// ==========================================================================
+// 🕵️ SCHEMA DOCTOR (DEBUGGER)
+// ==========================================================================
+function runSchemaDoctor() {
+    console.group("🕵️ SCHEMA DOCTOR DIAGNOSTICS");
+    
+    try {
+        console.log("Checking VoxelState definition...");
+        const testState = new VoxelState();
+        
+        // Check 1: Do decorators work?
+        const schemaDef = (testState as any)._schema;
+        if (!schemaDef) {
+            console.error("❌ FAILURE: VoxelState has no Schema metadata.");
+            console.error("👉 CAUSE: 'experimentalDecorators' is likely FALSE in tsconfig.json.");
+            return false;
+        } else {
+            console.log("✅ VoxelState metadata found.");
+        }
+
+        // Check 2: Is 'players' a MapSchema?
+        if (testState.players instanceof MapSchema) {
+            console.log("✅ VoxelState.players is correctly initialized as MapSchema.");
+        } else {
+            console.error("❌ FAILURE: VoxelState.players is NOT a MapSchema.");
+            console.error(`   Actual type: ${typeof testState.players}`);
+            console.error("   Constructor: " + testState.players?.constructor?.name);
+            return false;
+        }
+
+        console.log("✅ Schema Client-side definitions look healthy.");
+        return true;
+
+    } catch (e) {
+        console.error("❌ CRITICAL ERROR during Schema Doctor check:", e);
+        return false;
+    } finally {
+        console.groupEnd();
+    }
+}
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
@@ -32,7 +75,7 @@ const setHud = (lines: string[]) => {
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME NOTIFICATION UI
+// HELPER: BIOME UI
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
@@ -77,7 +120,7 @@ function showBiomeNotification(title: string, subtext: string = "") {
 }
 
 // --------------------------------------------------------------------------
-// HELPER: OVERLAY CANVAS (Hands)
+// HELPER: HANDS OVERLAY
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: { id: string; width: number; height: number; style: Partial<CSSStyleDeclaration>; }) {
   const c = document.createElement("canvas");
@@ -104,6 +147,14 @@ function now() { return performance.now(); }
 // --------------------------------------------------------------------------
 async function main() {
   console.log("🚀 Starting Client...");
+  
+  // RUN DOCTOR BEFORE ANYTHING ELSE
+  const isSchemaHealthy = runSchemaDoctor();
+  if (!isSchemaHealthy) {
+      setHud(["❌ CLIENT ERROR: Schema configuration broken.", "Check console for 'SCHEMA DOCTOR'"]);
+      return; // Stop execution
+  }
+
   setHud(["Initializing Engine..."]);
   createBiomeUI();
 
@@ -156,18 +207,17 @@ async function main() {
   // ========================================================================
   // 4. UI & INPUTS
   // ========================================================================
-  new HotbarUI();     // Bottom bar (Always visible)
-  new InventoryUI();  // Big Window (Visible on 'E')
+  new HotbarUI();     // Bottom bar
+  new InventoryUI();  // Big Window
 
-  // Standard Inputs
-  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f'); // Break
-  noa.inputs.bind('alt-fire', 'KeyR'); // Place
+  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
+  noa.inputs.bind('alt-fire', 'KeyR');
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
-  noa.inputs.bind('scan', 'KeyX'); // Scanner Tool
-  noa.inputs.bind('fill_inv', 'KeyI'); // Debug Inventory
+  noa.inputs.bind('scan', 'KeyX');
+  noa.inputs.bind('fill_inv', 'KeyI');
 
   let showDebug = true; 
   noa.inputs.down.on('debug', () => {
@@ -175,15 +225,13 @@ async function main() {
       if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
   });
 
-  // --- INVENTORY CONTROLS ---
-
-  // 1. Hotbar Selection (1-9)
+  // Hotbar (1-9)
   for (let i = 1; i <= 9; i++) {
       noa.inputs.bind(`slot${i}`, `Digit${i}`);
       noa.inputs.down.on(`slot${i}`, () => inventoryStore.getState().selectSlot(i - 1));
   }
 
-  // 2. Mouse Wheel Scroll
+  // Mouse Wheel
   window.addEventListener("wheel", (e) => {
       const current = inventoryStore.getState().selectedSlot;
       const dir = Math.sign(e.deltaY);
@@ -193,16 +241,16 @@ async function main() {
       inventoryStore.getState().selectSlot(next);
   });
 
-  // 3. Toggle Inventory ('E')
+  // Toggle Inventory
   window.addEventListener("keydown", (e) => {
-    if (document.activeElement?.tagName === "INPUT") return; // Don't trigger if typing
+    if (document.activeElement?.tagName === "INPUT") return;
     if (e.code === "KeyE") {
         inventoryStore.getState().toggleOpen();
         e.preventDefault();
     }
   });
 
-  // 4. Debug: Fill Inventory ('I')
+  // Fill Inventory
   noa.inputs.down.on('fill_inv', () => {
       console.log("🎒 Refilling Inventory...");
       const { setSlot } = inventoryStore.getState();
@@ -217,20 +265,17 @@ async function main() {
       setSlot(8, BLOCKS.BEACON_RAY, 64);
   });
 
-  // --- INVENTORY STATE HANDLING (Mouse/Movement) ---
+  // Inventory State (Mouse Lock)
   inventoryStore.subscribe((state) => {
       if (state.isOpen) {
-          // Open: Stop movement, Unlock mouse
           noa.inputs.state.forward = false;
           noa.inputs.state.backward = false;
           noa.inputs.state.left = false;
           noa.inputs.state.right = false;
           noa.inputs.state.jump = false;
           noa.inputs.state.fire = false;
-          
           document.exitPointerLock();
       } else {
-          // Closed: Re-lock mouse
           noa.container.canvas.requestPointerLock();
       }
   });
@@ -242,7 +287,6 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // Physics World Border
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -355,159 +399,154 @@ async function main() {
   });
 
   // ========================================================================
-  // 9. COLYSEUS NETWORKING (CRASH-PROOFED)
+  // 9. COLYSEUS NETWORKING (WITH AGGRESSIVE DEBUGGING)
   // ========================================================================
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
   
-  // ----------------------------------------------------------------------
-  // 🔥 FIX: Join with the Class Schema constructor
-  // ----------------------------------------------------------------------
-  const room = await client.joinOrCreate<VoxelState>("voxel", {}, VoxelState);
-  (window as any).room = room;
+  try {
+      console.log("🌐 Attempting to join room 'voxel'...");
+      
+      // Explicitly passing the VoxelState class for schema decoding
+      const room = await client.joinOrCreate<VoxelState>("voxel", {}, VoxelState);
+      (window as any).room = room;
 
-  console.log(`🟢 Connected: ${room.sessionId}`);
+      console.log(`🟢 Connected: ${room.sessionId}`);
 
-  // Track other player entities
-  const otherPlayers: Record<string, number> = {};
+      // DEBUG: Inspect state immediately after connection
+      console.group("📡 NETWORK STATE INSPECTION");
+      console.log("Room State Object:", room.state);
+      console.log("Has 'players'?", !!room.state.players);
+      console.log("Is 'players' MapSchema?", room.state.players instanceof MapSchema);
+      console.log("Keys in players:", Array.from(room.state.players.keys()));
+      console.groupEnd();
 
-  // --- SAFE LISTENERS ---
-  const registerPlayerListeners = () => {
-      if (!room.state.players) {
-          console.warn("⚠️ 'players' collection missing from state. Multiplayer sync might fail.");
-          return;
-      }
+      // Track other player entities
+      const otherPlayers: Record<string, number> = {};
 
-      // 🔍 DEBUG CHECK: Ensure we are using MapSchema
-      if (typeof room.state.players.onAdd !== "function") {
-          console.error("❌ CRITICAL: 'players' is still a plain object! Schema decoding failed.");
-          return;
-      }
+      // --- SAFE LISTENERS ---
+      if (!room.state.players || typeof room.state.players.onAdd !== "function") {
+          console.error("❌ FATAL: Server sent 'players' but client sees it as a Plain Object.");
+          console.error("👉 CAUSE: This usually means VoxelState/PlayerState on the client does not match the server, or decorators failed.");
+          setHud(["❌ Connection Error: Schema Mismatch"]);
+      } else {
+          
+          room.state.players.onAdd((player, sessionId) => {
+            if (sessionId === room.sessionId) return; // Ignore self
+            console.log("👤 Player joined:", sessionId);
 
-      room.state.players.onAdd((player: any, sessionId: string) => {
-        if (sessionId === room.sessionId) return; // Ignore self
+            // Create Red Box for other players
+            const scene = noa.rendering.getScene();
+            const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
+            const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
+            mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
+            mesh.material = mat;
 
-        console.log("👤 Player joined:", sessionId);
+            // Create Entity
+            const eid = noa.entities.add([player.x, player.y, player.z], 0.8, 1.8, mesh, [0, 0.9, 0], false, false);
+            otherPlayers[sessionId] = eid;
 
-        // Create Red Box for other players
-        const scene = noa.rendering.getScene();
-        const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
-        const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
-        mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
-        mesh.material = mat;
+            // Listen for movement
+            player.onChange(() => {
+                const targetEid = otherPlayers[sessionId];
+                if (targetEid !== undefined) {
+                    noa.entities.setPosition(targetEid, [player.x, player.y, player.z]);
+                }
+            });
+          });
 
-        // Create Entity
-        const eid = noa.entities.add([player.x, player.y, player.z], 0.8, 1.8, mesh, [0, 0.9, 0], false, false);
-        otherPlayers[sessionId] = eid;
-
-        // Listen for movement
-        player.onChange(() => {
-            const targetEid = otherPlayers[sessionId];
-            if (targetEid !== undefined) {
-                // Simple snap for now - can add interpolation later
-                noa.entities.setPosition(targetEid, [player.x, player.y, player.z]);
+          room.state.players.onRemove((player, sessionId) => {
+            console.log("✌️ Player left:", sessionId);
+            const eid = otherPlayers[sessionId];
+            if (eid !== undefined) {
+                noa.entities.deleteEntity(eid);
+                delete otherPlayers[sessionId];
             }
-        });
-      });
+          });
+      }
 
-      room.state.players.onRemove((player: any, sessionId: string) => {
-        console.log("✌️ Player left:", sessionId);
-        const eid = otherPlayers[sessionId];
-        if (eid !== undefined) {
-            noa.entities.deleteEntity(eid);
-            delete otherPlayers[sessionId];
+      // Handle messages
+      room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
+      room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
+
+      // --- ACTIONS (Networked) ---
+      noa.inputs.down.on("fire", () => {
+        if (inventoryStore.getState().isOpen) return;
+
+        swingHand(); 
+        if (noa.targetedBlock) {
+          const pos = noa.targetedBlock.position;
+          const id = noa.getBlock(pos[0], pos[1], pos[2]);
+
+          if (id === BLOCKS.BEDROCK || id === BLOCKS.AIR) return;
+
+          const added = inventoryStore.getState().addItem(id, 1);
+          
+          if (added) {
+              if (room.connection && room.connection.isOpen) {
+                room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.AIR });
+              }
+              noa.setBlock(BLOCKS.AIR, pos[0], pos[1], pos[2]);
+          }
         }
       });
-  };
 
-  // Attempt registration immediately or wait for sync
-  if (room.state.players) {
-      registerPlayerListeners();
-  } else {
-      console.log("Waiting for state initialization...");
-      room.onStateChange.once(() => {
-          registerPlayerListeners();
-      });
-  }
+      noa.inputs.down.on("alt-fire", () => {
+        if (inventoryStore.getState().isOpen) return;
 
-  // Handle messages immediately to avoid warnings
-  room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
-  room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
+        swingHand();
+        if (noa.targetedBlock) {
+          const pos = noa.targetedBlock.adjacent;
+          const item = inventoryStore.getState().getSelectedItem();
 
-  // --- ACTIONS (Networked) ---
-  noa.inputs.down.on("fire", () => {
-    if (inventoryStore.getState().isOpen) return;
+          if (!item || item.count <= 0) return;
 
-    swingHand(); 
-    if (noa.targetedBlock) {
-      const pos = noa.targetedBlock.position;
-      const id = noa.getBlock(pos[0], pos[1], pos[2]);
-
-      if (id === BLOCKS.BEDROCK || id === BLOCKS.AIR) return;
-
-      const added = inventoryStore.getState().addItem(id, 1);
-      
-      if (added) {
           if (room.connection && room.connection.isOpen) {
-            room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: BLOCKS.AIR });
+            room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: item.id });
           }
-          noa.setBlock(BLOCKS.AIR, pos[0], pos[1], pos[2]);
-      }
-    }
-  });
+          noa.setBlock(item.id, pos[0], pos[1], pos[2]);
+        }
+      });
 
-  noa.inputs.down.on("alt-fire", () => {
-    if (inventoryStore.getState().isOpen) return;
+      // --- SEND POSITION LOOP ---
+      setInterval(() => {
+        if (room && room.connection && room.connection.isOpen) {
+            const p = noa.entities.getPosition(noa.playerEntity);
+            room.send("move", { x: p[0], y: p[1], z: p[2] });
+        }
+      }, 100);
 
-    swingHand();
-    if (noa.targetedBlock) {
-      const pos = noa.targetedBlock.adjacent;
-      const item = inventoryStore.getState().getSelectedItem();
+      // ========================================================================
+      // 10. SERVER SYNC & ZONE LOGIC
+      // ========================================================================
+      const SERVER_CHUNK_SIZE = 16; 
+      let currentZone = "Unknown";
+      let pendingZone = "Unknown";
+      let pendingSince = 0;
 
-      if (!item || item.count <= 0) return;
-
-      if (room.connection && room.connection.isOpen) {
-        room.send("setBlock", { x: pos[0], y: pos[1], z: pos[2], id: item.id });
-      }
-      noa.setBlock(item.id, pos[0], pos[1], pos[2]);
-    }
-  });
-
-  // --- SEND POSITION LOOP ---
-  setInterval(() => {
-    if (room && room.connection && room.connection.isOpen) {
+      setInterval(() => {
+        if (!room || !room.connection || !room.connection.isOpen) return;
         const p = noa.entities.getPosition(noa.playerEntity);
-        // Send x, y, z to server so others see us
-        room.send("move", { x: p[0], y: p[1], z: p[2] });
-    }
-  }, 100);
+        const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
+        const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
+        const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
+        room.send("subscribeChunks", { cx, cy, cz, r: 8 });
 
-  // ========================================================================
-  // 10. SERVER SYNC & ZONE LOGIC
-  // ========================================================================
-  const SERVER_CHUNK_SIZE = 16; 
-  let currentZone = "Unknown";
-  let pendingZone = "Unknown";
-  let pendingSince = 0;
+        const newZone = townGen.getZoneName(p[0], p[2]);
+        const t = performance.now();
+        if (newZone !== pendingZone) { pendingZone = newZone; pendingSince = t; }
 
-  setInterval(() => {
-    if (!room || !room.connection || !room.connection.isOpen) return;
-    const p = noa.entities.getPosition(noa.playerEntity);
-    const cx = Math.floor(p[0] / SERVER_CHUNK_SIZE);
-    const cy = Math.floor(p[1] / SERVER_CHUNK_SIZE);
-    const cz = Math.floor(p[2] / SERVER_CHUNK_SIZE);
-    room.send("subscribeChunks", { cx, cy, cz, r: 8 });
+        if (pendingZone !== currentZone && (t - pendingSince) > 350) {
+            if (pendingZone === "Town of Beginnings") showBiomeNotification(pendingZone, "Safe Zone");
+            else showBiomeNotification(pendingZone, "PvP Enabled");
+            currentZone = pendingZone;
+        }
+      }, 250);
 
-    const newZone = townGen.getZoneName(p[0], p[2]);
-    const t = performance.now();
-    if (newZone !== pendingZone) { pendingZone = newZone; pendingSince = t; }
-
-    if (pendingZone !== currentZone && (t - pendingSince) > 350) {
-        if (pendingZone === "Town of Beginnings") showBiomeNotification(pendingZone, "Safe Zone");
-        else showBiomeNotification(pendingZone, "PvP Enabled");
-        currentZone = pendingZone;
-    }
-  }, 250);
+  } catch (e) {
+      console.error("❌ NETWORK FAILURE:", e);
+      setHud(["Connection Failed", "Check Console"]);
+  }
 
   setInterval(() => {
     if (!noa.playerEntity) return;
