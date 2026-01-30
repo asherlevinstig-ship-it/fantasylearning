@@ -5,7 +5,7 @@ export class VoxelState extends Schema {
     players = new MapSchema<PlayerState>();
 }
 
-// 🔥 DEFINITION MOVED HERE
+// 🔥 THIS IS THE FIX
 defineTypes(VoxelState, {
     players: { map: PlayerState }
 });

@@ -8,7 +8,7 @@ export class PlayerState extends Schema {
     pitch: number = 0;
 }
 
-// 🔥 DEFINITION MOVED HERE (Safe from minification)
+// 🔥 THIS IS THE FIX: Explicit definition prevents minification errors
 defineTypes(PlayerState, {
     x: "number",
     y: "number",
