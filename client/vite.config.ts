@@ -2,7 +2,13 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   esbuild: {
-    keepNames: true, // ✅ CRITICAL: Keeps class names for Colyseus
+    keepNames: true,
+    tsconfigRaw: {
+      compilerOptions: {
+        experimentalDecorators: true,
+        useDefineForClassFields: false,  // ← Force esbuild to respect this
+      }
+    }
   },
   build: {
     outDir: 'dist',
