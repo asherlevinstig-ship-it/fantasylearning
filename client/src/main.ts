@@ -11,7 +11,7 @@ import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
 // IMPORTANT: SCHEMA IMPORT
 // We import the class so we can pass it to joinOrCreate for type safety
 // --------------------------------------------------------------------------
-import { VoxelState } from "../schema/VoxelState";
+import { VoxelState } from "../schema/GameSchema";
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
