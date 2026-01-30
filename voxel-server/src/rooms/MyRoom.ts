@@ -8,7 +8,7 @@ export class MyRoom extends Room<MyRoomState> {
   onCreate (options: any) {
     this.onMessage("type", (client, message) => {
       //
-      // handle "type" message
+      // handle "tyspe" message
       //
     });
   }
