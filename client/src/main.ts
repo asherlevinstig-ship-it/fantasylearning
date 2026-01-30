@@ -3,18 +3,68 @@ import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
-import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
-import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
-import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
+import { inventoryStore } from "./store/inventory"; 
+import { HotbarUI } from "./ui/HotbarUI";           
+import { InventoryUI } from "./ui/inventoryUI";     
+import { Schema, MapSchema, Reflection } from "@colyseus/schema";
 
 // --------------------------------------------------------------------------
 // IMPORTANT: SCHEMA IMPORT
-// This file is now automatically synced from the server by your package.json
 // --------------------------------------------------------------------------
 import { VoxelState } from "./schema/VoxelState";
+import { PlayerState } from "./schema/PlayerState";
+
+// ==========================================================================
+// 🕵️ SUPER-VERBOSE DIAGNOSTICS
+// ==========================================================================
+function debugSchemaDefinitions() {
+    console.group("🕵️ SCHEMA DEEP DIVE");
+    
+    // 1. Check PlayerState
+    try {
+        console.log("Checking PlayerState...");
+        const pInfo = (PlayerState as any)._type;
+        const pSchema = (PlayerState as any)._schema;
+        if (!pSchema) {
+            console.error("❌ PlayerState has NO schema definitions. 'defineTypes' did not run or was stripped.");
+        } else {
+            console.log("✅ PlayerState Schema Found:", Object.keys(pSchema));
+        }
+    } catch (e) { console.error("💥 Error checking PlayerState:", e); }
+
+    // 2. Check VoxelState
+    try {
+        console.log("Checking VoxelState...");
+        const vSchema = (VoxelState as any)._schema;
+        if (!vSchema) {
+            console.error("❌ VoxelState has NO schema definitions.");
+        } else {
+            console.log("✅ VoxelState Schema Found:", Object.keys(vSchema));
+            // Check specific field mapping
+            if (vSchema['players'] && vSchema['players'].map === PlayerState) {
+                console.log("✅ 'players' field is correctly mapped to PlayerState class.");
+            } else {
+                console.error("❌ 'players' field is NOT mapped to PlayerState.", vSchema['players']);
+            }
+        }
+    } catch (e) { console.error("💥 Error checking VoxelState:", e); }
+
+    // 3. Instantiation Test
+    try {
+        const testState = new VoxelState();
+        console.log("Local Instance Test:", testState);
+        if (testState.players instanceof MapSchema) {
+            console.log("✅ Local VoxelState.players IS a MapSchema.");
+        } else {
+            console.error("❌ Local VoxelState.players is NOT a MapSchema. It is:", testState.players);
+        }
+    } catch (e) { console.error("💥 Error instantiating VoxelState:", e); }
+
+    console.groupEnd();
+}
 
 // --------------------------------------------------------------------------
-// HELPER: HUD (Top Left Debug Info)
+// HELPER: HUD
 // --------------------------------------------------------------------------
 const hudEl = document.getElementById("hud") as HTMLDivElement | null;
 const setHud = (lines: string[]) => { 
@@ -33,7 +83,7 @@ const setHud = (lines: string[]) => {
 };
 
 // --------------------------------------------------------------------------
-// HELPER: BIOME NOTIFICATION UI
+// HELPER: BIOME UI
 // --------------------------------------------------------------------------
 let biomeEl: HTMLDivElement | null = null;
 let biomeTitleEl: HTMLDivElement | null = null;
@@ -78,7 +128,7 @@ function showBiomeNotification(title: string, subtext: string = "") {
 }
 
 // --------------------------------------------------------------------------
-// HELPER: OVERLAY CANVAS (Hands)
+// HELPER: HANDS
 // --------------------------------------------------------------------------
 function createOverlayCanvas(opts: { id: string; width: number; height: number; style: Partial<CSSStyleDeclaration>; }) {
   const c = document.createElement("canvas");
@@ -105,6 +155,10 @@ function now() { return performance.now(); }
 // --------------------------------------------------------------------------
 async function main() {
   console.log("🚀 Starting Client...");
+  
+  // 🔥 RUN DIAGNOSTICS BEFORE ANYTHING ELSE
+  debugSchemaDefinitions();
+
   setHud(["Initializing Engine..."]);
   createBiomeUI();
 
@@ -157,18 +211,17 @@ async function main() {
   // ========================================================================
   // 4. UI & INPUTS
   // ========================================================================
-  new HotbarUI();     // Bottom bar (Always visible)
-  new InventoryUI();  // Big Window (Visible on 'E')
+  new HotbarUI();     // Bottom bar
+  new InventoryUI();  // Big Window
 
-  // Standard Inputs
-  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f'); // Break
-  noa.inputs.bind('alt-fire', 'KeyR'); // Place
+  noa.inputs.bind('fire', 'KeyF'); noa.inputs.bind('fire', 'f');
+  noa.inputs.bind('alt-fire', 'KeyR');
   noa.inputs.bind('home', 'KeyG'); 
   noa.inputs.bind('wall', 'KeyH'); 
   noa.inputs.bind('wild', 'KeyJ');
   noa.inputs.bind('debug', 'F3'); noa.inputs.bind('debug', 'KeyZ'); noa.inputs.bind('debug', 'KeyP'); 
-  noa.inputs.bind('scan', 'KeyX'); // Scanner Tool
-  noa.inputs.bind('fill_inv', 'KeyI'); // Debug Inventory
+  noa.inputs.bind('scan', 'KeyX');
+  noa.inputs.bind('fill_inv', 'KeyI');
 
   let showDebug = true; 
   noa.inputs.down.on('debug', () => {
@@ -176,15 +229,13 @@ async function main() {
       if (hudEl) hudEl.style.display = showDebug ? "block" : "none";
   });
 
-  // --- INVENTORY CONTROLS ---
-
-  // 1. Hotbar Selection (1-9)
+  // Hotbar
   for (let i = 1; i <= 9; i++) {
       noa.inputs.bind(`slot${i}`, `Digit${i}`);
       noa.inputs.down.on(`slot${i}`, () => inventoryStore.getState().selectSlot(i - 1));
   }
 
-  // 2. Mouse Wheel Scroll
+  // Scroll
   window.addEventListener("wheel", (e) => {
       const current = inventoryStore.getState().selectedSlot;
       const dir = Math.sign(e.deltaY);
@@ -194,16 +245,16 @@ async function main() {
       inventoryStore.getState().selectSlot(next);
   });
 
-  // 3. Toggle Inventory ('E')
+  // Toggle Inv
   window.addEventListener("keydown", (e) => {
-    if (document.activeElement?.tagName === "INPUT") return; // Don't trigger if typing
+    if (document.activeElement?.tagName === "INPUT") return; 
     if (e.code === "KeyE") {
         inventoryStore.getState().toggleOpen();
         e.preventDefault();
     }
   });
 
-  // 4. Debug: Fill Inventory ('I')
+  // Fill Inv
   noa.inputs.down.on('fill_inv', () => {
       console.log("🎒 Refilling Inventory...");
       const { setSlot } = inventoryStore.getState();
@@ -218,20 +269,17 @@ async function main() {
       setSlot(8, BLOCKS.BEACON_RAY, 64);
   });
 
-  // --- INVENTORY STATE HANDLING (Mouse/Movement) ---
+  // State
   inventoryStore.subscribe((state) => {
       if (state.isOpen) {
-          // Open: Stop movement, Unlock mouse
           noa.inputs.state.forward = false;
           noa.inputs.state.backward = false;
           noa.inputs.state.left = false;
           noa.inputs.state.right = false;
           noa.inputs.state.jump = false;
           noa.inputs.state.fire = false;
-          
           document.exitPointerLock();
       } else {
-          // Closed: Re-lock mouse
           noa.container.canvas.requestPointerLock();
       }
   });
@@ -243,7 +291,6 @@ async function main() {
     const pos = noa.entities.getPosition(noa.playerEntity);
     let modified = false;
 
-    // Physics World Border
     if (pos[0] > WORLD_RADIUS) { pos[0] = WORLD_RADIUS; modified = true; } 
     else if (pos[0] < -WORLD_RADIUS) { pos[0] = -WORLD_RADIUS; modified = true; }
     if (pos[2] > WORLD_RADIUS) { pos[2] = WORLD_RADIUS; modified = true; } 
@@ -361,15 +408,22 @@ async function main() {
   setHud(["Connecting..."]);
   const client = new Client(window.location.origin);
   
-  // ----------------------------------------------------------------------
   // 🔥 FIX: Join with the Class Schema constructor
-  // ----------------------------------------------------------------------
   const room = await client.joinOrCreate<VoxelState>("voxel", {}, VoxelState);
   (window as any).room = room;
 
   console.log(`🟢 Connected: ${room.sessionId}`);
 
-  // Track other player entities
+  // 🕵️ EXTRA DEBUG: CHECK STATE AFTER CONNECTION
+  console.log("📡 Remote State:", room.state);
+  console.log("   Has players?", !!room.state.players);
+  if (room.state.players) {
+      console.log("   Players Type:", room.state.players.constructor.name);
+      console.log("   Is MapSchema?", room.state.players instanceof MapSchema);
+  } else {
+      console.error("❌ room.state.players is UNDEFINED.");
+  }
+
   const otherPlayers: Record<string, number> = {};
 
   // --- SAFE LISTENERS ---
@@ -379,10 +433,10 @@ async function main() {
           return;
       }
 
-      // 🔍 DEBUG CHECK: Ensure we are using MapSchema
-      // With defineTypes() and the package.json sync, this should now always be true.
+      // If this check fails, the Schema did not decode correctly.
       if (typeof room.state.players.onAdd !== "function") {
           console.error("❌ CRITICAL: 'players' is still a plain object! Schema decoding failed.");
+          console.error("Dump:", room.state.players);
           return;
       }
 
@@ -391,22 +445,18 @@ async function main() {
 
         console.log("👤 Player joined:", sessionId);
 
-        // Create Red Box for other players
         const scene = noa.rendering.getScene();
         const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
         const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
         mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
         mesh.material = mat;
 
-        // Create Entity
         const eid = noa.entities.add([player.x, player.y, player.z], 0.8, 1.8, mesh, [0, 0.9, 0], false, false);
         otherPlayers[sessionId] = eid;
 
-        // Listen for movement
         player.onChange(() => {
             const targetEid = otherPlayers[sessionId];
             if (targetEid !== undefined) {
-                // Simple snap for now - can add interpolation later
                 noa.entities.setPosition(targetEid, [player.x, player.y, player.z]);
             }
         });
@@ -422,7 +472,6 @@ async function main() {
       });
   };
 
-  // Attempt registration immediately or wait for sync
   if (room.state.players) {
       registerPlayerListeners();
   } else {
@@ -432,7 +481,6 @@ async function main() {
       });
   }
 
-  // Handle messages immediately to avoid warnings
   room.onMessage("worldInfo", (msg) => console.log("WorldInfo:", msg));
   room.onMessage("blockUpdate", (msg) => noa.setBlock(msg.id, msg.x, msg.y, msg.z));
 
@@ -479,7 +527,6 @@ async function main() {
   setInterval(() => {
     if (room && room.connection && room.connection.isOpen) {
         const p = noa.entities.getPosition(noa.playerEntity);
-        // Send x, y, z to server so others see us
         room.send("move", { x: p[0], y: p[1], z: p[2] });
     }
   }, 100);

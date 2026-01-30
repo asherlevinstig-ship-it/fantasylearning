@@ -16,7 +16,7 @@ export class MyRoom extends Room<MyRoomState> {
             player.x = data.x;
             player.y = data.y;
             player.z = data.z;
-            // If you sent yaw/pitch from client, update them here too
+            // If you sent yaw/pitch sfrom client, update them here too
         }
     });
 
