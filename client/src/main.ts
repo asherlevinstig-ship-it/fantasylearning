@@ -5,7 +5,7 @@ import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks"; 
 import { inventoryStore } from "./store/inventory"; // STATE MANAGEMENT
 import { HotbarUI } from "./ui/HotbarUI";           // VISUALS
-import { InventoryUI } from "./ui/InventoryUI";     // NEW VISUALS
+import { InventoryUI } from "./ui/inventoryUI";     // NEW VISUALS
 
 // --------------------------------------------------------------------------
 // HELPER: HUD (Top Left Debug Info)
