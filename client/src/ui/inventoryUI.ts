@@ -1,3 +1,4 @@
+import { SkinViewer, WalkingAnimation } from "skinview3d";
 import { inventoryStore } from "../store/inventory";
 import { BLOCKS } from "../blocks";
 import { ARMOR_SLOTS } from "../items/ItemRegistry";
@@ -7,8 +8,12 @@ export class InventoryUI {
     private window: HTMLDivElement;
     private cursorItem: HTMLDivElement;
     
+    // 3D Paper Doll Components
+    private skinCanvas: HTMLCanvasElement;
+    private skinViewer: SkinViewer | null = null;
+    private isRendering: boolean = false;
+    
     // We store references to every slot DOM element by index
-    // Sparse array: slots[0] is hotbar 1, slots[204] is crafting result
     private slots: HTMLDivElement[] = [];
 
     constructor() {
@@ -32,11 +37,8 @@ export class InventoryUI {
             top: "50%", 
             left: "50%",
             transform: "translate(-50%, -50%)", 
-            width: "352px", 
-            // Height calculates roughly to accommodate all sections
-            // Armor/Crafting (approx 80px) + Main (3*36 + gaps) + Hotbar (36) + padding
-            // We use 'auto' or a fixed height that fits.
-            minHeight: "332px",
+            width: "400px", // Widened slightly for the 3D model
+            minHeight: "350px",
             backgroundColor: "#c6c6c6", 
             border: "4px solid #555",
             boxShadow: "inset 4px 4px #fff, inset -4px -4px #555",
@@ -49,12 +51,24 @@ export class InventoryUI {
         });
         this.backdrop.appendChild(this.window);
 
-        // 3. Build Layout Sections
-        this.createTopSection(); // Holds Armor + Crafting side-by-side
+        // 3. Initialize 3D Canvas
+        this.skinCanvas = document.createElement("canvas");
+        Object.assign(this.skinCanvas.style, {
+            width: "100px",
+            height: "120px",
+            backgroundColor: "#8b8b8b",
+            border: "2px solid #373737",
+            borderRightColor: "#fff", 
+            borderBottomColor: "#fff",
+            boxShadow: "inset 2px 2px 4px rgba(0,0,0,0.5)"
+        });
+
+        // 4. Build Layout Sections
+        this.createTopSection(); // Armor + Character + Crafting
         this.createMainSection(); // 9x3 Grid
         this.createHotbarSection(); // 1x9 Grid
 
-        // 4. Create Floating Cursor Item (Follows Mouse)
+        // 5. Create Floating Cursor Item (Follows Mouse)
         this.cursorItem = document.createElement("div");
         Object.assign(this.cursorItem.style, {
             position: "fixed", 
@@ -69,7 +83,10 @@ export class InventoryUI {
         document.body.appendChild(this.cursorItem);
         document.body.appendChild(this.backdrop);
 
-        // 5. Event Listeners
+        // 6. Initialize SkinViewer (The 3D Model)
+        this.initSkinViewer();
+
+        // 7. Event Listeners
         
         // Track Mouse for Cursor Item
         document.addEventListener("mousemove", (e) => {
@@ -82,6 +99,53 @@ export class InventoryUI {
         inventoryStore.subscribe((state) => {
             this.render(state);
         });
+    }
+
+    /**
+     * Sets up the 3D Character Preview
+     */
+    private initSkinViewer() {
+        const SKIN_URL = "https://heads.playcdu.co/skin/c06f89064c8a49119c29ea1dbd1aab82"; 
+
+        this.skinViewer = new SkinViewer({
+            canvas: this.skinCanvas,
+            width: 100,
+            height: 120,
+            skin: SKIN_URL
+        });
+
+        // Settings for "Paper Doll" look
+        this.skinViewer.fov = 70;
+        this.skinViewer.zoom = 0.8;
+        this.skinViewer.autoRotate = true; // Spin slowly
+        this.skinViewer.autoRotateSpeed = 0.5;
+        this.skinViewer.animation = new WalkingAnimation(); // Idle walk
+        
+        // Position camera to look at body center
+        this.skinViewer.camera.position.set(0, 15, 40);
+        this.skinViewer.controls.enableZoom = false;
+        this.skinViewer.controls.enablePan = false;
+    }
+
+    /**
+     * Rendering Loop for the 3D Model
+     * Only runs when inventory is OPEN to save performance.
+     */
+    private startRenderLoop() {
+        if (this.isRendering) return;
+        this.isRendering = true;
+
+        const loop = () => {
+            if (!this.isRendering || !this.skinViewer) return;
+            // Draw the 3D model
+            this.skinViewer.render(); 
+            requestAnimationFrame(loop);
+        };
+        loop();
+    }
+
+    private stopRenderLoop() {
+        this.isRendering = false;
     }
 
     /**
@@ -118,7 +182,7 @@ export class InventoryUI {
     }
 
     /**
-     * Creates the top area containing Armor (Left) and Crafting (Right)
+     * Creates the top area containing Armor (Left), Character (Center), Crafting (Right)
      */
     private createTopSection() {
         const container = document.createElement("div");
@@ -126,7 +190,8 @@ export class InventoryUI {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "flex-start",
-            marginBottom: "10px"
+            marginBottom: "10px",
+            gap: "10px"
         });
 
         // --- LEFT: ARMOR ---
@@ -135,24 +200,21 @@ export class InventoryUI {
         armorCol.style.flexDirection = "column";
         armorCol.style.gap = "4px";
 
-        // We create vertical armor slots
-        // Note: Minecraft is vertical, but horizontal is easier for layout here.
-        // Let's do horizontal for simplicity of this layout engine
-        const armorRow = document.createElement("div");
-        armorRow.style.display = "flex";
-        armorRow.style.gap = "4px";
+        // Vertical Armor Slots
+        armorCol.appendChild(this.createSlot(ARMOR_SLOTS.HEAD));
+        armorCol.appendChild(this.createSlot(ARMOR_SLOTS.CHEST));
+        armorCol.appendChild(this.createSlot(ARMOR_SLOTS.LEGS));
+        armorCol.appendChild(this.createSlot(ARMOR_SLOTS.FEET));
 
-        armorRow.appendChild(this.createSlot(ARMOR_SLOTS.HEAD));
-        armorRow.appendChild(this.createSlot(ARMOR_SLOTS.CHEST));
-        armorRow.appendChild(this.createSlot(ARMOR_SLOTS.LEGS));
-        armorRow.appendChild(this.createSlot(ARMOR_SLOTS.FEET));
+        // --- CENTER: CHARACTER PREVIEW ---
+        const charCol = document.createElement("div");
+        charCol.style.display = "flex";
+        charCol.style.flexDirection = "column";
+        charCol.style.alignItems = "center";
+        charCol.style.gap = "4px";
         
-        const armorLabel = document.createElement("div");
-        armorLabel.textContent = "Armor";
-        armorLabel.style.fontSize = "12px";
-
-        armorCol.appendChild(armorLabel);
-        armorCol.appendChild(armorRow);
+        // Add the 3D Canvas here
+        charCol.appendChild(this.skinCanvas);
 
         // --- RIGHT: CRAFTING ---
         const craftingCol = document.createElement("div");
@@ -197,7 +259,9 @@ export class InventoryUI {
         craftingCol.appendChild(craftLabel);
         craftingCol.appendChild(craftBody);
 
+        // Add columns to container
         container.appendChild(armorCol);
+        container.appendChild(charCol);
         container.appendChild(craftingCol);
         
         this.window.appendChild(container);
@@ -247,10 +311,13 @@ export class InventoryUI {
      * Main Render Loop: Syncs DOM with Zustand State
      */
     private render(state: ReturnType<typeof inventoryStore.getState>) {
-        // 1. Toggle Visibility
-        this.backdrop.style.display = state.isOpen ? "block" : "none";
-
-        if (!state.isOpen) {
+        // 1. Toggle Visibility & Render Loop
+        if (state.isOpen) {
+            this.backdrop.style.display = "block";
+            this.startRenderLoop(); // Start 3D animation
+        } else {
+            this.backdrop.style.display = "none";
+            this.stopRenderLoop(); // Stop 3D animation (Save GPU)
             this.cursorItem.style.display = "none";
             return;
         }
