@@ -13,7 +13,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    minify: 'esbuild'
+    minify: 'esbuild',
+    sourcemap: false, // <--- CRITICAL FIX: Disables source maps to save ~50% RAM during build
+    chunkSizeWarningLimit: 2000 // Optional: Increases warning limit to prevent console noise
   },
   server: {
     host: true,

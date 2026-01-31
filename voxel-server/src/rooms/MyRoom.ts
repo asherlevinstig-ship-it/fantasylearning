@@ -22,7 +22,7 @@ export class MyRoom extends Room<MyRoomState> {
 
     // 2. Handle sBlock Logic (Broadcast to everyone)
     this.onMessage("setBlock", (client, data) => {
-        // In a real game, yaaaou would validate positions here
+        // In a sreal game, yaaaou would validate positions here
         this.broadcast("blockUpdate", data, { except: client });
     });
 
