@@ -1,4 +1,3 @@
-// shared/schemas/GameState.ts
 import { Schema, MapSchema, type } from "@colyseus/schema";
 
 export class PlayerState extends Schema {
@@ -9,6 +8,13 @@ export class PlayerState extends Schema {
     @type("number") pitch: number = 0;
 }
 
+export class ChunkState extends Schema {
+    @type("string") key: string = "";
+    @type("number") version: number = 0;
+}
+
 export class VoxelState extends Schema {
-    @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
+    // ✅ BEST PRACTICE: Explicit type annotation + Explicit initialization
+    @type({ map: PlayerState }) 
+    players: MapSchema<PlayerState> = new MapSchema<PlayerState>();
 }

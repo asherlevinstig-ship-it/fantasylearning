@@ -1,23 +1,20 @@
 {
   "compilerOptions": {
-    "outDir": "build",
-    "target": "ES2018",
-    "module": "CommonJS",
+    "outDir": "dist",
+    "target": "es2016",
+    "module": "commonjs",
     "moduleResolution": "node",
     "strict": true,
-    "allowJs": true,
-    "strictNullChecks": false,
     "esModuleInterop": true,
-    
-    /* Decorator Settings - CRITICAL */
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "useDefineForClassFields": false,
-
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    
+    // CRITICAL: Allow compiling files outside of ./src
+    // This prevents "File '...' is not under 'rootDir'" errors when you include shared
+    "rootDir": ".." 
   },
   "include": [
-    "src"
+    "src",
+    "../shared"  // 👈 THIS IS THE MISSING LINK
   ]
 }

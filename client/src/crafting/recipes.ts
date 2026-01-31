@@ -12,7 +12,8 @@ export type ShapedRecipe = {
 
 export type ShapelessRecipe = {
     type: "shapeless";
-    ingredients: number[]; // List of required IDs
+    // List of required IDs (order doesn't matter)
+    ingredients: number[]; 
     result: RecipeResult;
 };
 
@@ -26,6 +27,7 @@ export const RECIPES: Recipe[] = [
         ingredients: [BLOCKS.WOOD_LOG],
         result: { id: BLOCKS.WOOD_PLANKS, count: 4 }
     },
+
     // 2. 4 Planks -> Crafting Table (Shaped 2x2)
     {
         type: "shaped",
@@ -33,15 +35,20 @@ export const RECIPES: Recipe[] = [
             [BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS],
             [BLOCKS.WOOD_PLANKS, BLOCKS.WOOD_PLANKS]
         ],
-        result: { id: BLOCKS.STONE_BRICK, count: 1 } // Placeholder: We don't have a table block yet, using Stone
+        // Placeholder: Using Stone until you make a Table block
+        result: { id: BLOCKS.STONE_BRICK, count: 1 } 
     },
-    // 3. 2 Planks (Vertical) -> Sticks (Shaped 2x1) - Example
+
+    // 3. 2 Planks (Vertical) -> Sticks (Shaped 2x1)
+    // Note: Because our Engine scans offsets, this will work in 
+    // either the LEFT column (slots 0,2) or RIGHT column (slots 1,3)
     {
         type: "shaped",
         pattern: [
             [BLOCKS.WOOD_PLANKS],
             [BLOCKS.WOOD_PLANKS]
         ],
-        result: { id: BLOCKS.BEACON_RAY, count: 4 } // Placeholder for Sticks
+        // Placeholder: Using Beacon Ray for sticks
+        result: { id: BLOCKS.BEACON_RAY, count: 4 } 
     }
 ];

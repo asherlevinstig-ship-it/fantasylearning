@@ -1,5 +1,5 @@
-import { Room, Client } from "colyseus";
-import { VoxelState, PlayerState } from "../../../shared/schemas/GameState"; // Adjust path if needed
+import { Room, Client } from "@colyseus/core";
+import { VoxelState, PlayerState } from "../../../shared/schemas/GameState";
 import { ChunkStore } from "../voxel/chunkStore"; 
 import { TownGenerator } from "../voxel/TownGenerator";
 import { chunkFromWorld, keyFromChunk } from "../voxel/chunkKey";
@@ -190,7 +190,7 @@ export class VoxelRoom extends Room<VoxelState> {
                   
                   // Only set if not air to save ops (if your setBlock handles 0 correctly)
                   if (genID !== 0) {
-                     this.chunks.setBlock(globalX, globalY, globalZ, genID);
+                      this.chunks.setBlock(globalX, globalY, globalZ, genID);
                   }
               }
           }

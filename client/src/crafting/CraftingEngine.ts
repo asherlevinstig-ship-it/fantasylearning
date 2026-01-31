@@ -1,5 +1,6 @@
-import { Recipe, ShapedRecipe, ShapelessRecipe, RECIPES } from "./recipes";
-import { InventoryItem } from "../store/inventory";
+// ✅ FIX: Use 'import type' for types, and regular import for values (RECIPES)
+import { RECIPES, type Recipe, type ShapedRecipe, type ShapelessRecipe } from "./recipes";
+import type { InventoryItem } from "../store/inventory";
 
 export class CraftingEngine {
     
@@ -8,6 +9,12 @@ export class CraftingEngine {
      * @param inputSlots Array of 4 items (for 2x2 grid)
      */
     public static checkRecipes(inputSlots: (InventoryItem | null)[]): Recipe | null {
+        // Validation: Expect 4 slots
+        if (inputSlots.length !== 4) {
+            console.warn(`CraftingEngine: Expected 4 input slots, got ${inputSlots.length}`);
+            return null;
+        }
+
         // 1. Convert 1D slots to flat ID array for shapeless
         const flatIds = inputSlots.map(i => i ? i.id : null).filter(id => id !== null) as number[];
         
@@ -29,16 +36,23 @@ export class CraftingEngine {
         return null;
     }
 
+    /**
+     * O(n) Matching using Frequency Map
+     */
     private static matchShapeless(inputIds: number[], recipe: ShapelessRecipe): boolean {
-        // Optimization: Count check
         if (inputIds.length !== recipe.ingredients.length) return false;
 
-        const pool = [...inputIds];
-        for (const ing of recipe.ingredients) {
-            const idx = pool.indexOf(ing);
-            if (idx === -1) return false;
-            pool.splice(idx, 1);
+        const counts = new Map<number, number>();
+        for (const id of inputIds) {
+            counts.set(id, (counts.get(id) ?? 0) + 1);
         }
+
+        for (const ing of recipe.ingredients) {
+            const currentCount = counts.get(ing) ?? 0;
+            if (currentCount === 0) return false;
+            counts.set(ing, currentCount - 1);
+        }
+
         return true;
     }
 
@@ -48,14 +62,11 @@ export class CraftingEngine {
         const gridH = grid.length;     // 2
         const gridW = grid[0].length;  // 2
 
-        // Optimization: If recipe is bigger than our grid (e.g. 3x3 recipe in 2x2 grid)
         if (recipeH > gridH || recipeW > gridW) return false;
 
-        // Iterate over every possible starting position in the grid
         for (let y = 0; y <= gridH - recipeH; y++) {
             for (let x = 0; x <= gridW - recipeW; x++) {
                 if (this.checkPatternAt(grid, recipe.pattern, x, y)) {
-                    // One final check: Ensure no leftover items outside the matched pattern
                     if (this.isEmptyElsewhere(grid, recipe.pattern, x, y)) {
                         return true;
                     }
@@ -79,12 +90,12 @@ export class CraftingEngine {
     private static isEmptyElsewhere(grid: (number | null)[][], pattern: (number|null)[][], startX: number, startY: number): boolean {
         for (let y = 0; y < grid.length; y++) {
             for (let x = 0; x < grid[0].length; x++) {
-                // If this coordinate is INSIDE the pattern box, ignore it
+                // If inside pattern box, skip
                 if (y >= startY && y < startY + pattern.length && 
                     x >= startX && x < startX + pattern[0].length) {
                     continue;
                 }
-                // If coordinate is OUTSIDE, it must be null
+                // If outside, must be null
                 if (grid[y][x] !== null) return false;
             }
         }
