@@ -163,7 +163,7 @@ export class VoxelRoom extends Room<VoxelState> {
 }
 
 // ==================================================================
-// INLINED VALIDATION sHELPERSs
+// INLINED VALIDATION ssHELPERSs
 // ==================================================================
 function isFiniteNumber(val: any): val is number {
   return typeof val === "number" && isFinite(val);

@@ -1,5 +1,5 @@
 // ==========================================================================
-// main.ts - Voxel Game Client (Schema Reflection Mode)
+// main.ts - Voxel Game Client (Manual State Tracking)
 // ==========================================================================
 
 import { Client } from "colyseus.js";
@@ -137,7 +137,7 @@ function startThrottledRender(viewer: SkinViewer, fps = 30): void {
 // MAIN APPLICATION
 // ==========================================================================
 async function main(): Promise<void> {
-    console.log("🚀 Starting Client (Schema Reflection Mode)...");
+    console.log("🚀 Starting Client...");
 
     setHud(["Initializing Engine..."]);
     createBiomeUI();
@@ -414,89 +414,86 @@ async function main(): Promise<void> {
     });
 
     // ======================================================================
-    // 9. COLYSEUS NETWORKING (Schema Reflection Mode)
+    // 9. COLYSEUS NETWORKING (Manual State Tracking)
     // ======================================================================
     setHud(["Connecting..."]);
     const client = new Client(window.location.origin);
 
-    // Join WITHOUT passing schema class - server sends schema via reflection
     const room = await client.joinOrCreate("voxel", {});
     (window as any).room = room;
 
     console.log(`🟢 Connected: ${room.sessionId}`);
 
+    // Player entity tracking
     const otherPlayers: Record<string, number> = {};
+    const knownPlayers = new Set<string>();
 
-    // Wait for state to initialize, then register listeners
-    room.onStateChange.once((state: any) => {
-        console.log("📡 State received via reflection:", state);
-        console.log("   State keys:", Object.keys(state));
+    // Helper: Create player entity
+    function createPlayerEntity(sessionId: string, player: any): void {
+        if (otherPlayers[sessionId] !== undefined) return;
 
-        if (!state.players) {
-            console.error("❌ No 'players' collection in state!");
-            return;
+        console.log("👤 Creating player entity:", sessionId, { x: player.x, y: player.y, z: player.z });
+
+        const scene = noa.rendering.getScene();
+        const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
+        const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
+        mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
+        mesh.material = mat;
+
+        const eid = noa.entities.add(
+            [player.x, player.y, player.z],
+            0.8, 1.8, mesh, [0, 0.9, 0], false, false
+        );
+        otherPlayers[sessionId] = eid;
+        knownPlayers.add(sessionId);
+    }
+
+    // Helper: Remove player entity
+    function removePlayerEntity(sessionId: string): void {
+        const eid = otherPlayers[sessionId];
+        if (eid !== undefined) {
+            console.log("✌️ Removing player entity:", sessionId);
+            noa.entities.deleteEntity(eid);
+            delete otherPlayers[sessionId];
         }
+        knownPlayers.delete(sessionId);
+    }
 
-        console.log("   players type:", state.players.constructor.name);
-        console.log("   players size:", state.players.size);
-
-        // Verify onAdd exists (it should with reflection)
-        if (typeof state.players.onAdd !== "function") {
-            console.error("❌ state.players.onAdd is not a function!");
-            console.error("   Available methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(state.players)));
-            return;
+    // Helper: Update player position
+    function updatePlayerPosition(sessionId: string, player: any): void {
+        const eid = otherPlayers[sessionId];
+        if (eid !== undefined) {
+            noa.entities.setPosition(eid, [player.x, player.y, player.z]);
         }
+    }
 
-        console.log("✅ Registering player listeners...");
+    // Track state changes manually via diffing
+    room.onStateChange((state: any) => {
+        if (!state.players) return;
 
-        // Handle new players joining
-        state.players.onAdd((player: any, sessionId: string) => {
-            console.log("👤 Player joined:", sessionId, { x: player.x, y: player.y, z: player.z });
+        const currentPlayerIds = new Set<string>();
+
+        state.players.forEach((player: any, sessionId: string) => {
+            currentPlayerIds.add(sessionId);
 
             // Skip self
-            if (sessionId === room.sessionId) {
-                console.log("   (Skipping self)");
-                return;
-            }
+            if (sessionId === room.sessionId) return;
 
-            // Create player mesh
-            const scene = noa.rendering.getScene();
-            const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
-            const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
-            mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
-            mesh.material = mat;
-
-            const eid = noa.entities.add(
-                [player.x, player.y, player.z],
-                0.8, 1.8, mesh, [0, 0.9, 0], false, false
-            );
-            otherPlayers[sessionId] = eid;
-
-            // Listen for position updates
-            player.onChange(() => {
-                const targetEid = otherPlayers[sessionId];
-                if (targetEid !== undefined) {
-                    noa.entities.setPosition(targetEid, [player.x, player.y, player.z]);
-                }
-            });
-        });
-
-        // Handle players leaving
-        state.players.onRemove((_player: any, sessionId: string) => {
-            console.log("✌️ Player left:", sessionId);
-            const eid = otherPlayers[sessionId];
-            if (eid !== undefined) {
-                noa.entities.deleteEntity(eid);
-                delete otherPlayers[sessionId];
+            // New player?
+            if (!knownPlayers.has(sessionId)) {
+                createPlayerEntity(sessionId, player);
+            } else {
+                // Update existing player
+                updatePlayerPosition(sessionId, player);
             }
         });
 
-        // Check for any players already in the room
-        state.players.forEach((player: any, sessionId: string) => {
-            if (sessionId !== room.sessionId) {
-                console.log("👥 Existing player found:", sessionId);
+        // Check for removed players
+        for (const sessionId of knownPlayers) {
+            if (!currentPlayerIds.has(sessionId)) {
+                removePlayerEntity(sessionId);
             }
-        });
+        }
     });
 
     // Message handlers
@@ -508,7 +505,6 @@ async function main(): Promise<void> {
         noa.setBlock(msg.id, msg.x, msg.y, msg.z);
     });
 
-    // Error handling
     room.onError((code, message) => {
         console.error("❌ Room error:", code, message);
     });
@@ -557,7 +553,7 @@ async function main(): Promise<void> {
         }
     });
 
-    // Position sync loop (send position to server)
+    // Position sync loop
     setInterval(() => {
         if (room?.connection?.isOpen) {
             const p = noa.entities.getPosition(noa.playerEntity);
