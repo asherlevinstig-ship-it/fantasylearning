@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@colyseus/schema": "^4.0.7"
+  }
+}

@@ -1,21 +1,21 @@
 // ==========================================================================
-// main.ts - Voxel Game Client
+// main.ts - Voxel Game Client (Full Rewrite)
 // ==========================================================================
 
 // --- FIX 1: Import Schema logic immediately so it registers before connection ---
-import "./schema/GameSchema"; 
+import "../../shared/schemas/GameState"; 
+import { VoxelState } from "../../shared/schemas/GameState";
 
-import { Client } from "colyseus.js";
+import { Client, Room } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
 // --- FIX 2: Ensure MeshBuilder is imported for player entity creation ---
-import { MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
+import { MeshBuilder, StandardMaterial, Color3, Mesh } from "@babylonjs/core";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks";
 import { inventoryStore } from "./store/inventory";
 import { HotbarUI } from "./ui/HotbarUI";
 import { InventoryUI } from "./ui/inventoryUI";
-import { VoxelState } from "./schema/GameSchema"; // Optional: For TypeScript typing
 
 // ==========================================================================
 // HUD HELPER
@@ -425,26 +425,18 @@ async function main(): Promise<void> {
     setHud(["Connecting..."]);
     const client = new Client(window.location.origin);
 
-    // FIX: Pass the Generic VoxelState type for autocomplete
     const room = await client.joinOrCreate<VoxelState>("voxel", {});
     (window as any).room = room;
 
     console.log(`🟢 Connected: ${room.sessionId}`);
 
     // Player entity tracking (stores Babylon meshes)
-    const otherPlayers: Record<string, any> = {};
-    const knownPlayers = new Set<string>();
-
-    // Get Babylon.js scene from noa
+    const otherPlayers: Record<string, Mesh> = {};
     const scene = noa.rendering.getScene();
 
     // Helper: Create player entity
     function createPlayerEntity(sessionId: string, player: any): void {
-        // Guard FIRST to prevent infinite retries
-        if (knownPlayers.has(sessionId)) return;
-        knownPlayers.add(sessionId);
-
-        if (otherPlayers[sessionId] !== undefined) return;
+        if (otherPlayers[sessionId]) return;
 
         console.log("👤 Creating player entity:", sessionId, { x: player.x, y: player.y, z: player.z });
 
@@ -482,7 +474,6 @@ async function main(): Promise<void> {
             mesh.dispose();
             delete otherPlayers[sessionId];
         }
-        knownPlayers.delete(sessionId);
     }
 
     // Helper: Update player position
@@ -493,33 +484,25 @@ async function main(): Promise<void> {
         }
     }
 
-    // Track state changes manually via diffing
-    room.onStateChange((state: any) => {
-        if (!state.players) return;
+    // --- OPTIMIZED SCHEMA CALLBACKS (Replaces manual diffing) ---
+    
+    // 1. Handle existing players & new joins
+    room.state.players.onAdd((player, sessionId) => {
+        // Ignore self (noa handles our own player)
+        if (sessionId === room.sessionId) return;
 
-        const currentPlayerIds = new Set<string>();
+        console.log("👤 Player synced:", sessionId);
+        createPlayerEntity(sessionId, player);
 
-        state.players.forEach((player: any, sessionId: string) => {
-            currentPlayerIds.add(sessionId);
-
-            // Skip self
-            if (sessionId === room.sessionId) return;
-
-            // New player?
-            if (!knownPlayers.has(sessionId)) {
-                createPlayerEntity(sessionId, player);
-            } else {
-                // Update existing player
-                updatePlayerPosition(sessionId, player);
-            }
+        // 2. Listen for position updates from THIS specific player
+        player.onChange(() => {
+            updatePlayerPosition(sessionId, player);
         });
+    });
 
-        // Check for removed players
-        for (const sessionId of knownPlayers) {
-            if (!currentPlayerIds.has(sessionId)) {
-                removePlayerEntity(sessionId);
-            }
-        }
+    // 3. Handle Disconnections
+    room.state.players.onRemove((player, sessionId) => {
+        removePlayerEntity(sessionId);
     });
 
     // Message handlers
@@ -694,3 +677,7 @@ main().catch((e) => {
     console.error("❌ FATAL:", e);
     setHud(["Error (check console)"]);
 });
+
+declare module "noa-engine" {
+  export const Engine: any;
+}
