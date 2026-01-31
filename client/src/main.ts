@@ -1,5 +1,5 @@
 // ==========================================================================
-// main.ts - Voxel Game Client (Manual State Tracking)
+// main.ts - Voxel Game Client (Full Rewrite)
 // ==========================================================================
 
 import { Client } from "colyseus.js";
@@ -414,7 +414,7 @@ async function main(): Promise<void> {
     });
 
     // ======================================================================
-    // 9. COLYSEUS NETWORKING (Manual State Tracking)
+    // 9. COLYSEUS NETWORKING
     // ======================================================================
     setHud(["Connecting..."]);
     const client = new Client(window.location.origin);
@@ -424,36 +424,56 @@ async function main(): Promise<void> {
 
     console.log(`🟢 Connected: ${room.sessionId}`);
 
-    // Player entity tracking
-    const otherPlayers: Record<string, number> = {};
+    // Player entity tracking (stores Babylon meshes)
+    const otherPlayers: Record<string, any> = {};
     const knownPlayers = new Set<string>();
+
+    // Get Babylon.js reference from noa
+    const scene = noa.rendering.getScene();
+    const BABYLON = (window as any).BABYLON;
 
     // Helper: Create player entity
     function createPlayerEntity(sessionId: string, player: any): void {
+        // Guard FIRST to prevent infinite retries
+        if (knownPlayers.has(sessionId)) return;
+        knownPlayers.add(sessionId);
+
         if (otherPlayers[sessionId] !== undefined) return;
 
         console.log("👤 Creating player entity:", sessionId, { x: player.x, y: player.y, z: player.z });
 
-        const scene = noa.rendering.getScene();
-        const mesh = noa.rendering.makeMesh("box", 0.8, 1.8, 0.8);
-        const mat = noa.rendering.makeStandardMaterial("player_mat_" + sessionId);
-        mat.diffuseColor = new (scene.getEngine()._workingContext.BABYLON).Color3(1, 0, 0);
-        mesh.material = mat;
+        try {
+            // Create box mesh using Babylon.js MeshBuilder
+            const mesh = BABYLON.MeshBuilder.CreateBox(
+                "player_" + sessionId,
+                { width: 0.8, height: 1.8, depth: 0.8 },
+                scene
+            );
 
-        const eid = noa.entities.add(
-            [player.x, player.y, player.z],
-            0.8, 1.8, mesh, [0, 0.9, 0], false, false
-        );
-        otherPlayers[sessionId] = eid;
-        knownPlayers.add(sessionId);
+            // Create red material
+            const mat = new BABYLON.StandardMaterial("player_mat_" + sessionId, scene);
+            mat.diffuseColor = new BABYLON.Color3(1, 0, 0);
+            mat.emissiveColor = new BABYLON.Color3(0.3, 0, 0);
+            mesh.material = mat;
+
+            // Position the mesh
+            mesh.position.set(player.x, player.y + 0.9, player.z);
+
+            // Store mesh reference
+            otherPlayers[sessionId] = mesh;
+
+            console.log("✅ Player mesh created for:", sessionId);
+        } catch (e) {
+            console.error("❌ Failed to create player mesh:", e);
+        }
     }
 
     // Helper: Remove player entity
     function removePlayerEntity(sessionId: string): void {
-        const eid = otherPlayers[sessionId];
-        if (eid !== undefined) {
+        const mesh = otherPlayers[sessionId];
+        if (mesh) {
             console.log("✌️ Removing player entity:", sessionId);
-            noa.entities.deleteEntity(eid);
+            mesh.dispose();
             delete otherPlayers[sessionId];
         }
         knownPlayers.delete(sessionId);
@@ -461,9 +481,9 @@ async function main(): Promise<void> {
 
     // Helper: Update player position
     function updatePlayerPosition(sessionId: string, player: any): void {
-        const eid = otherPlayers[sessionId];
-        if (eid !== undefined) {
-            noa.entities.setPosition(eid, [player.x, player.y, player.z]);
+        const mesh = otherPlayers[sessionId];
+        if (mesh && mesh.position) {
+            mesh.position.set(player.x, player.y + 0.9, player.z);
         }
     }
 
