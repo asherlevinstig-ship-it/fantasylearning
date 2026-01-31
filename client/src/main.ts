@@ -1,10 +1,11 @@
 // ==========================================================================
-// main.ts - Voxel Game Client (Full Rewrite)
+// main.ts - Voxel Game Client
 // ==========================================================================
 
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
+import { MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks";
 import { inventoryStore } from "./store/inventory";
@@ -428,9 +429,8 @@ async function main(): Promise<void> {
     const otherPlayers: Record<string, any> = {};
     const knownPlayers = new Set<string>();
 
-    // Get Babylon.js reference from noa
+    // Get Babylon.js scene from noa
     const scene = noa.rendering.getScene();
-    const BABYLON = (window as any).BABYLON;
 
     // Helper: Create player entity
     function createPlayerEntity(sessionId: string, player: any): void {
@@ -443,17 +443,17 @@ async function main(): Promise<void> {
         console.log("👤 Creating player entity:", sessionId, { x: player.x, y: player.y, z: player.z });
 
         try {
-            // Create box mesh using Babylon.js MeshBuilder
-            const mesh = BABYLON.MeshBuilder.CreateBox(
+            // Create box mesh using imported Babylon MeshBuilder
+            const mesh = MeshBuilder.CreateBox(
                 "player_" + sessionId,
                 { width: 0.8, height: 1.8, depth: 0.8 },
                 scene
             );
 
             // Create red material
-            const mat = new BABYLON.StandardMaterial("player_mat_" + sessionId, scene);
-            mat.diffuseColor = new BABYLON.Color3(1, 0, 0);
-            mat.emissiveColor = new BABYLON.Color3(0.3, 0, 0);
+            const mat = new StandardMaterial("player_mat_" + sessionId, scene);
+            mat.diffuseColor = new Color3(1, 0, 0);
+            mat.emissiveColor = new Color3(0.3, 0, 0);
             mesh.material = mat;
 
             // Position the mesh
