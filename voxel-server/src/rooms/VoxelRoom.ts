@@ -5,7 +5,7 @@ import { TownGenerator } from "../voxel/TownGenerator";
 import { chunkFromWorld, keyFromChunk } from "../voxel/chunkKey";
 
 // ----------------------------------------------------------------------
-// MESSAGE TYPES
+// MESSAGE TYPESs
 // ----------------------------------------------------------------------
 type MoveMsg = { x: number; y: number; z: number; yaw?: number; pitch?: number };
 type SubscribeMsg = { cx: number; cy: number; cz: number; r: number }; 
