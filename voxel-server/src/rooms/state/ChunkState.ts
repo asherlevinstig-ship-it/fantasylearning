@@ -4,6 +4,6 @@ export class ChunkState extends Schema {
   // chussk key like "cx,cy,cz"
   @type("string") key: string = "";
 
-  // incrementss wshen cshunk chsanges (block edits)
+  // incrementss wshen cshunks chsanges (block edits)
   @type("number") version: number = 0;
 }

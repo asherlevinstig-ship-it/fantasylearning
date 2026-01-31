@@ -2,15 +2,20 @@
 // main.ts - Voxel Game Client
 // ==========================================================================
 
+// --- FIX 1: Import Schema logic immediately so it registers before connection ---
+import "./schema/GameSchema"; 
+
 import { Client } from "colyseus.js";
 import { Engine } from "noa-engine";
 import { SkinViewer } from "skinview3d";
+// --- FIX 2: Ensure MeshBuilder is imported for player entity creation ---
 import { MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
 import { TownGenerator } from "./TownGenerator";
 import { BLOCKS } from "./blocks";
 import { inventoryStore } from "./store/inventory";
 import { HotbarUI } from "./ui/HotbarUI";
 import { InventoryUI } from "./ui/inventoryUI";
+import { VoxelState } from "./schema/GameSchema"; // Optional: For TypeScript typing
 
 // ==========================================================================
 // HUD HELPER
@@ -420,7 +425,8 @@ async function main(): Promise<void> {
     setHud(["Connecting..."]);
     const client = new Client(window.location.origin);
 
-    const room = await client.joinOrCreate("voxel", {});
+    // FIX: Pass the Generic VoxelState type for autocomplete
+    const room = await client.joinOrCreate<VoxelState>("voxel", {});
     (window as any).room = room;
 
     console.log(`🟢 Connected: ${room.sessionId}`);
